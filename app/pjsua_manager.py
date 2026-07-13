@@ -252,7 +252,21 @@ class PjsuaManager:
             if abonado.id in self.accounts:
                 self.remove_account(abonado.id)
             acc = _Account(abonado, self)
-            acc.create(self._account_config(abonado))
+            try:
+                acc.create(self._account_config(abonado))
+            except Exception as e:
+                # Una config inválida (URI/proxy/realm) NO debe tumbar la
+                # plataforma: se reporta el error y se sigue con el resto.
+                reason = getattr(e, "reason", None) or getattr(e, "title", None) or str(e)
+                msg = f"abonado {abonado.line_number}: config inválida ({reason})"
+                print(f"[add_account] {msg}", flush=True)
+                self._reg_state[abonado.id] = {
+                    "active": False, "code": 400, "reason": reason,
+                    "line": abonado.line_number,
+                }
+                bus.emit("register", abonado_id=abonado.id, active=False,
+                         code=400, reason=reason, line=abonado.line_number)
+                return
             self.accounts[abonado.id] = acc
 
     def update_account(self, abonado: Abonado) -> None:
@@ -285,7 +299,12 @@ class PjsuaManager:
 
     def _account_config(self, ab: Abonado):
         cfg = pj.AccountConfig()
-        realm = ab.auth_realm or ab.domain
+        # El realm de la credencial DEBE coincidir con el del challenge (WWW-
+        # Authenticate) o PJSIP no responde el 401. En IMS el realm del HSS
+        # suele diferir del dominio, así que por defecto usamos el comodín "*"
+        # (responde a cualquier realm). Si el abonado fija un realm explícito,
+        # se respeta.
+        realm = ab.auth_realm.strip() if ab.auth_realm and ab.auth_realm.strip() else "*"
         cfg.idUri = f"sip:{ab.line_number}@{ab.domain}"
         # R-URI del REGISTER = home domain; el ruteo al P-CSCF va por el proxy.
         cfg.regConfig.registrarUri = f"sip:{ab.domain}"
@@ -303,7 +322,12 @@ class PjsuaManager:
         with self._lock:
             acc = self.accounts.get(abonado_id)
         if acc is not None:
-            acc.setRegistration(renew)
+            try:
+                acc.setRegistration(renew)
+            except Exception as e:
+                reason = getattr(e, "reason", None) or str(e)
+                print(f"[register] abonado {abonado_id}: {reason}", flush=True)
+                bus.emit("log", level="warn", msg=f"register {abonado_id}: {reason}")
 
     # ---- llamadas ----
     def originate(self, from_id: int, to_number: str) -> Optional[str]:

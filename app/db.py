@@ -36,7 +36,7 @@ def _seed() -> None:
                     transport="udp",
                     auth_user=num,
                     auth_password=f"pass{num}",
-                    auth_realm=config.LOCAL_DOMAIN,
+                    auth_realm="",   # vacío => comodín "*" (responde cualquier realm)
                     codec_pref="PCMU,PCMA",
                     alerting_delay_s=3,
                     echo_enabled=True,
