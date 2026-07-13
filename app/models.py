@@ -20,6 +20,10 @@ class AbonadoBase(SQLModel):
     auth_user: str = ""                           # IMPI / username Digest
     auth_password: str = ""                       # password EN PLANO (Digest MD5)
     auth_realm: str = ""                          # vacío => se usa `domain`
+    # Registrar/Request-URI del REGISTER (= digest-uri). Vacío => sip:<domain>
+    # (estándar 3GPP). Para replicar equipos que usan la IP del P-CSCF como
+    # Request-URI, fijar p.ej. "sip:100.103.6.12".
+    registrar_uri: str = ""
     codec_pref: str = "PCMU,PCMA"                 # prioridad de codecs (G.711)
     alerting_delay_s: int = 3                     # segundos de 180 antes de atender
     echo_enabled: bool = True                     # devolver audio en modo eco
@@ -45,6 +49,7 @@ class AbonadoUpdate(SQLModel):
     auth_user: Optional[str] = None
     auth_password: Optional[str] = None
     auth_realm: Optional[str] = None
+    registrar_uri: Optional[str] = None
     codec_pref: Optional[str] = None
     alerting_delay_s: Optional[int] = None
     echo_enabled: Optional[bool] = None

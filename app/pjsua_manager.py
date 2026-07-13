@@ -306,8 +306,13 @@ class PjsuaManager:
         # se respeta.
         realm = ab.auth_realm.strip() if ab.auth_realm and ab.auth_realm.strip() else "*"
         cfg.idUri = f"sip:{ab.line_number}@{ab.domain}"
-        # R-URI del REGISTER = home domain; el ruteo al P-CSCF va por el proxy.
-        cfg.regConfig.registrarUri = f"sip:{ab.domain}"
+        # R-URI del REGISTER (= digest-uri). Default = home domain (estándar
+        # 3GPP); si el abonado fija registrar_uri se usa tal cual (p.ej. la IP
+        # del P-CSCF, para replicar equipos que la usan como Request-URI).
+        reg_uri = (ab.registrar_uri or "").strip()
+        if reg_uri and not reg_uri.lower().startswith("sip:"):
+            reg_uri = "sip:" + reg_uri
+        cfg.regConfig.registrarUri = reg_uri or f"sip:{ab.domain}"
         cfg.regConfig.timeoutSec = ab.reg_expires
         # P-CSCF como outbound proxy: el REGISTER/INVITE sale hacia él.
         cfg.sipConfig.proxies.append(

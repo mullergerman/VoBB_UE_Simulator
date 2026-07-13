@@ -15,7 +15,26 @@ engine = create_engine(
 
 def init_db() -> None:
     SQLModel.metadata.create_all(engine)
+    _migrate()
     _seed()
+
+
+def _migrate() -> None:
+    """Agrega columnas nuevas a bases existentes (SQLite ADD COLUMN idempotente).
+
+    create_all() no altera tablas ya creadas, así que las bases de datos previas
+    (volumen productivo) no tendrían las columnas agregadas después. Aquí las
+    añadimos sin perder los abonados existentes.
+    """
+    new_cols = {
+        "registrar_uri": "VARCHAR DEFAULT ''",
+    }
+    with engine.connect() as conn:
+        existing = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(abonado)").fetchall()}
+        for col, ddl in new_cols.items():
+            if col not in existing:
+                conn.exec_driver_sql(f"ALTER TABLE abonado ADD COLUMN {col} {ddl}")
+        conn.commit()
 
 
 def _seed() -> None:
