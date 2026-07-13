@@ -8,7 +8,7 @@ from sqlmodel import select
 
 from . import config
 from .api import router
-from .db import get_session, init_db
+from .db import get_session, init_db, resolve_abonado
 from .events import bus
 from .models import Abonado
 from .pjsua_manager import manager
@@ -25,9 +25,9 @@ async def _startup():
     bus.attach_loop(asyncio.get_event_loop())
     # Arranca el motor SIP en un thread (libStart puede bloquear brevemente).
     await asyncio.get_event_loop().run_in_executor(None, manager.start)
-    # Da de alta las cuentas de los abonados habilitados.
+    # Da de alta las cuentas de los abonados habilitados (resolviendo su perfil).
     with get_session() as s:
-        abonados = s.exec(select(Abonado)).all()
+        abonados = [resolve_abonado(ab, s) for ab in s.exec(select(Abonado)).all()]
     for ab in abonados:
         if ab.enabled:
             await asyncio.get_event_loop().run_in_executor(None, manager.add_account, ab)

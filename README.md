@@ -8,6 +8,16 @@ con autenticación **Digest MD5** (password en plano), y al recibir una llamada 
 Incluye una **interfaz web de gestión** para dar de alta abonados, originar/cortar llamadas,
 y visualizar en tiempo real la **señalización SIP** y las **estadísticas RTP** de cada abonado.
 
+## Perfiles
+
+Un **Perfil** agrupa los parámetros de red/comportamiento compartidos (dominio, P-CSCF,
+realm, registrar/Request-URI, codecs, alerting, eco, expires). Cada abonado puede
+referenciar un perfil y **heredar** esos campos, definiendo solo sus datos propios
+(línea/IMPU, IMPI, password). Así se dan de alta muchos usuarios con la misma
+parametrización, y al **editar el perfil** se re-aplica (re-registra) a todos sus abonados.
+Un abonado sin perfil ("personalizado") usa sus campos propios. La plataforma arranca con
+un perfil por defecto (`Local (Kamailio)`) y 4 abonados asociados.
+
 ## Arquitectura
 
 - **Backend** Python (FastAPI) con un único `pjsua2.Endpoint` que aloja **un `Account` por abonado**.

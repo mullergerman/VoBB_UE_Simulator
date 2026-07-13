@@ -6,12 +6,20 @@ from typing import List
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from sqlmodel import select
 
-from .db import get_session
+from .db import get_session, resolve_abonado
 from .events import bus
-from .models import Abonado, AbonadoCreate, AbonadoUpdate
+from .models import (
+    SHARED_FIELDS, Abonado, AbonadoCreate, AbonadoUpdate,
+    Profile, ProfileCreate, ProfileUpdate,
+)
 from .pjsua_manager import manager
 
 router = APIRouter()
+
+
+def _apply(ab: Abonado, session) -> None:
+    """Resuelve el perfil del abonado y (re)crea su cuenta en el motor SIP."""
+    manager.update_account(resolve_abonado(ab, session))
 
 
 # --------------------------------------------------------------------------
@@ -30,7 +38,7 @@ def create_abonado(data: AbonadoCreate):
         s.add(ab)
         s.commit()
         s.refresh(ab)
-    manager.add_account(ab)
+        _apply(ab, s)
     return ab
 
 
@@ -45,7 +53,7 @@ def update_abonado(abonado_id: int, data: AbonadoUpdate):
         s.add(ab)
         s.commit()
         s.refresh(ab)
-    manager.update_account(ab)
+        _apply(ab, s)
     return ab
 
 
@@ -67,7 +75,7 @@ def register_abonado(abonado_id: int):
         ab = s.get(Abonado, abonado_id)
         if not ab:
             raise HTTPException(404, "Abonado no encontrado")
-    manager.add_account(ab)
+        _apply(ab, s)
     manager.register(abonado_id, renew=True)
     return {"ok": True}
 
@@ -76,6 +84,62 @@ def register_abonado(abonado_id: int):
 def unregister_abonado(abonado_id: int):
     manager.register(abonado_id, renew=False)
     return {"ok": True}
+
+
+# --------------------------------------------------------------------------
+# Perfiles (parámetros compartidos entre abonados)
+# --------------------------------------------------------------------------
+@router.get("/api/profiles", response_model=List[Profile])
+def list_profiles():
+    with get_session() as s:
+        return s.exec(select(Profile)).all()
+
+
+@router.post("/api/profiles", response_model=Profile)
+def create_profile(data: ProfileCreate):
+    prof = Profile.model_validate(data)
+    with get_session() as s:
+        s.add(prof)
+        s.commit()
+        s.refresh(prof)
+    return prof
+
+
+@router.put("/api/profiles/{profile_id}", response_model=Profile)
+def update_profile(profile_id: int, data: ProfileUpdate):
+    with get_session() as s:
+        prof = s.get(Profile, profile_id)
+        if not prof:
+            raise HTTPException(404, "Perfil no encontrado")
+        for k, v in data.model_dump(exclude_unset=True).items():
+            setattr(prof, k, v)
+        s.add(prof)
+        s.commit()
+        s.refresh(prof)
+        # Re-aplicar el perfil a todos sus abonados (re-registro con nueva config).
+        abonados = s.exec(select(Abonado).where(Abonado.profile_id == profile_id)).all()
+        for ab in abonados:
+            _apply(ab, s)
+    return prof
+
+
+@router.delete("/api/profiles/{profile_id}")
+def delete_profile(profile_id: int):
+    with get_session() as s:
+        prof = s.get(Profile, profile_id)
+        if not prof:
+            raise HTTPException(404, "Perfil no encontrado")
+        # Desvincular: copiar los campos compartidos del perfil a cada abonado
+        # que lo usa (para que conserven su config) y ponerlos como "personalizado".
+        abonados = s.exec(select(Abonado).where(Abonado.profile_id == profile_id)).all()
+        for ab in abonados:
+            for f in SHARED_FIELDS:
+                setattr(ab, f, getattr(prof, f))
+            ab.profile_id = None
+            s.add(ab)
+        s.delete(prof)
+        s.commit()
+    return {"ok": True, "detached": len(abonados)}
 
 
 # --------------------------------------------------------------------------

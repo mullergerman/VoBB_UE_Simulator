@@ -2,6 +2,8 @@
 
 // ---------------- Estado en memoria ----------------
 let abonados = [];
+let profiles = [];            // perfiles (parámetros compartidos)
+const SHARED_FIELDS = ["domain","pcscf_addr","pcscf_port","transport","auth_realm","registrar_uri","codec_pref","alerting_delay_s","echo_enabled","reg_expires"];
 const regState = {};          // abonado_id -> {active, code, reason}
 const calls = {};             // call_id -> {line, remote, state, last_code, abonado_id}
 const sipAll = [];            // log global de mensajes SIP (se filtra por abonado al render)
@@ -29,18 +31,33 @@ const fmtTime = (ms) => new Date(ms).toLocaleTimeString("es-AR", { hour12: false
 const now = () => fmtTime(Date.now());
 
 // ---------------- Carga inicial ----------------
-async function loadAbonados() {
+async function loadAll() {
+  profiles = await api("GET", "/api/profiles");
   abonados = await api("GET", "/api/abonados");
+  renderProfiles();
   renderAbonados();
   renderCallSelectors();
   renderDetailSelector();
+}
+async function loadAbonados() { await loadAll(); }
+
+const profileById = (id) => profiles.find((p) => String(p.id) === String(id));
+
+// Valores efectivos del abonado: si tiene perfil, hereda los campos compartidos.
+function effective(a) {
+  const p = a.profile_id != null ? profileById(a.profile_id) : null;
+  if (!p) return a;
+  const e = { ...a };
+  for (const f of SHARED_FIELDS) e[f] = p[f];
+  return e;
 }
 
 function renderAbonados() {
   const tb = $("#abonados-body");
   tb.innerHTML = "";
-  if (!abonados.length) { tb.innerHTML = '<tr><td colspan="9" class="empty">Sin abonados</td></tr>'; return; }
+  if (!abonados.length) { tb.innerHTML = '<tr><td colspan="10" class="empty">Sin abonados</td></tr>'; return; }
   for (const a of abonados) {
+    const e = effective(a);
     const tr = el("tr");
     const rs = regState[a.id] || {};
     const dotCls = rs.active ? "ok" : (rs.code >= 400 ? "fail" : "pending");
@@ -49,12 +66,16 @@ function renderAbonados() {
     const dotTd = el("td"); const dot = el("span", "reg-dot " + dotCls); dot.title = dotTitle; dotTd.appendChild(dot);
     tr.appendChild(dotTd);
     tr.appendChild(el("td", "mono", a.line_number));
-    tr.appendChild(el("td", "mono", a.domain));
-    tr.appendChild(el("td", "mono", `${a.pcscf_addr}:${a.pcscf_port}/${a.transport}`));
+    const pf = a.profile_id != null ? profileById(a.profile_id) : null;
+    const pfTd = el("td");
+    pfTd.appendChild(el("span", "profile-pill" + (pf ? "" : " none"), pf ? pf.name : "personalizado"));
+    tr.appendChild(pfTd);
+    tr.appendChild(el("td", "mono", e.domain));
+    tr.appendChild(el("td", "mono", `${e.pcscf_addr}:${e.pcscf_port}/${e.transport}`));
     tr.appendChild(el("td", "mono", a.auth_user || a.line_number));
     tr.appendChild(el("td", "mono", a.auth_password));
-    tr.appendChild(el("td", null, a.alerting_delay_s + "s"));
-    tr.appendChild(el("td", null, a.echo_enabled ? "sí" : "no"));
+    tr.appendChild(el("td", null, e.alerting_delay_s + "s"));
+    tr.appendChild(el("td", null, e.echo_enabled ? "sí" : "no"));
 
     const act = el("td");
     const bReg = el("button", "small", rs.active ? "Unreg" : "Reg");
@@ -62,6 +83,35 @@ function renderAbonados() {
     const bEdit = el("button", "small", "Editar"); bEdit.onclick = () => openModal(a);
     const bDel = el("button", "small danger", "✕"); bDel.onclick = () => { if (confirm("¿Borrar abonado " + a.line_number + "?")) api("DELETE", `/api/abonados/${a.id}`).then(loadAbonados); };
     act.append(bReg, bEdit, bDel);
+    tr.appendChild(act);
+    tb.appendChild(tr);
+  }
+}
+
+function renderProfiles() {
+  const tb = $("#profiles-body");
+  tb.innerHTML = "";
+  if (!profiles.length) { tb.innerHTML = '<tr><td colspan="10" class="empty">Sin perfiles</td></tr>'; return; }
+  for (const p of profiles) {
+    const used = abonados.filter((a) => String(a.profile_id) === String(p.id)).length;
+    const tr = el("tr");
+    tr.appendChild(el("td", null, p.name));
+    tr.appendChild(el("td", "mono", p.domain));
+    tr.appendChild(el("td", "mono", `${p.pcscf_addr}:${p.pcscf_port}/${p.transport}`));
+    tr.appendChild(el("td", "mono", p.auth_realm || "*"));
+    tr.appendChild(el("td", "mono", p.registrar_uri || "(dominio)"));
+    tr.appendChild(el("td", "mono", p.codec_pref));
+    tr.appendChild(el("td", null, p.alerting_delay_s + "s"));
+    tr.appendChild(el("td", null, p.echo_enabled ? "sí" : "no"));
+    tr.appendChild(el("td", null, String(used)));
+    const act = el("td");
+    const bEdit = el("button", "small", "Editar"); bEdit.onclick = () => openProfileModal(p);
+    const bDel = el("button", "small danger", "✕");
+    bDel.onclick = () => {
+      const msg = used ? `El perfil "${p.name}" lo usan ${used} abonado(s). Se desvincularán (conservando esta config). ¿Continuar?` : `¿Borrar perfil "${p.name}"?`;
+      if (confirm(msg)) api("DELETE", `/api/profiles/${p.id}`).then(loadAll);
+    };
+    act.append(bEdit, bDel);
     tr.appendChild(act);
     tb.appendChild(tr);
   }
@@ -317,21 +367,39 @@ function sipRelevant(r, abId) {
   return false;
 }
 
-// ---------------- Modal alta/edición ----------------
+// ---------------- Modal ABONADO ----------------
+function fillProfileSelect() {
+  const sel = $("#ab-profile"); sel.innerHTML = "";
+  sel.appendChild(Object.assign(el("option", null, "— Personalizado (sin perfil) —"), { value: "" }));
+  for (const p of profiles) sel.appendChild(Object.assign(el("option", null, p.name), { value: String(p.id) }));
+}
+// Muestra u oculta los campos compartidos según haya perfil seleccionado.
+function syncSharedVisibility() {
+  const hasProfile = !!$("#ab-profile").value;
+  $("#ab-shared").classList.toggle("hidden", hasProfile);
+}
 function openModal(a) {
   const f = $("#abonado-form");
   f.reset();
+  fillProfileSelect();
   $("#modal-title").textContent = a ? "Editar abonado " + a.line_number : "Nuevo abonado";
   if (a) {
     for (const k of Object.keys(a)) {
       const inp = f.elements[k];
       if (!inp) continue;
-      if (inp.type === "checkbox") inp.checked = !!a[k]; else inp.value = a[k];
+      if (inp.type === "checkbox") inp.checked = !!a[k];
+      else inp.value = a[k] == null ? "" : a[k];
     }
+    $("#ab-profile").value = a.profile_id != null ? String(a.profile_id) : "";
+  } else if (profiles.length) {
+    $("#ab-profile").value = String(profiles[0].id);   // por defecto, primer perfil
   }
+  syncSharedVisibility();
   $("#modal").classList.remove("hidden");
 }
 function closeModal() { $("#modal").classList.add("hidden"); }
+
+$("#ab-profile").onchange = syncSharedVisibility;
 
 $("#abonado-form").onsubmit = async (ev) => {
   ev.preventDefault();
@@ -343,15 +411,51 @@ $("#abonado-form").onsubmit = async (ev) => {
     else data[inp.name] = inp.value;
   }
   const id = data.id; delete data.id;
+  // profile_id: "" => sin perfil (null); si hay perfil, no mandamos los campos
+  // compartidos (los aporta el perfil).
+  data.profile_id = data.profile_id ? Number(data.profile_id) : null;
+  if (data.profile_id != null) for (const fld of SHARED_FIELDS) delete data[fld];
   if (id) await api("PUT", "/api/abonados/" + id, data);
   else await api("POST", "/api/abonados", data);
   closeModal();
-  await loadAbonados();
+  await loadAll();
+};
+
+// ---------------- Modal PERFIL ----------------
+function openProfileModal(p) {
+  const f = $("#profile-form");
+  f.reset();
+  $("#profile-modal-title").textContent = p ? "Editar perfil: " + p.name : "Nuevo perfil";
+  if (p) for (const k of Object.keys(p)) {
+    const inp = f.elements[k];
+    if (!inp) continue;
+    if (inp.type === "checkbox") inp.checked = !!p[k]; else inp.value = p[k] == null ? "" : p[k];
+  }
+  $("#profile-modal").classList.remove("hidden");
+}
+function closeProfileModal() { $("#profile-modal").classList.add("hidden"); }
+
+$("#profile-form").onsubmit = async (ev) => {
+  ev.preventDefault();
+  const f = ev.target; const data = {};
+  for (const inp of f.elements) {
+    if (!inp.name) continue;
+    if (inp.type === "checkbox") data[inp.name] = inp.checked;
+    else if (inp.type === "number") data[inp.name] = inp.value === "" ? null : Number(inp.value);
+    else data[inp.name] = inp.value;
+  }
+  const id = data.id; delete data.id;
+  if (id) await api("PUT", "/api/profiles/" + id, data);
+  else await api("POST", "/api/profiles", data);
+  closeProfileModal();
+  await loadAll();
 };
 
 // ---------------- Eventos UI ----------------
 $("#btn-new").onclick = () => openModal(null);
 $("#btn-cancel").onclick = closeModal;
+$("#btn-new-profile").onclick = () => openProfileModal(null);
+$("#btn-cancel-profile").onclick = closeProfileModal;
 $("#btn-call").onclick = () => api("POST", "/api/calls", { from_id: Number($("#call-from").value), to_number: $("#call-to").value });
 $("#btn-hangup-all").onclick = () => api("POST", "/api/calls/hangup_all");
 $("#detail-select").onchange = (e) => { detailAbonado = e.target.value; renderDetail(); };
@@ -371,7 +475,7 @@ $("#sip-clear").onclick = () => { sipAll.length = 0; sipOpen.clear(); renderSip(
 // Cargar abonados ANTES de conectar el WS para que el replay de señalización
 // (que llega apenas conecta) pueda atribuirse correctamente.
 (async () => {
-  await loadAbonados();
+  await loadAll();
   connectWs();
 })();
 setInterval(() => { renderCalls(); }, 2000);

@@ -146,7 +146,13 @@ select, input {
 .modal-box { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 20px; width: 640px; max-width: 92vw; max-height: 90vh; overflow-y: auto; }
 .modal-box h3 { margin: 0 0 16px; }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.form-grid label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+.form-grid label, .modal-box > form > label.full { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
 .form-grid label.chk { flex-direction: row; align-items: center; gap: 8px; }
+label.full { margin-bottom: 6px; }
+.hint { font-size: 11px; color: var(--muted); margin: 0 0 12px; font-style: italic; }
+.shared-sep { font-size: 11px; text-transform: uppercase; color: var(--muted); letter-spacing: .04em; margin: 4px 0 10px; padding-top: 12px; border-top: 1px solid var(--border); }
+#ab-shared.hidden { display: none; }
+.profile-pill { background: var(--panel2); border: 1px solid var(--border); color: #9db2ff; padding: 1px 8px; border-radius: 10px; font-size: 11px; }
+.profile-pill.none { color: var(--muted); }
 .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
 .empty { color: var(--muted); padding: 14px 16px; font-size: 13px; }

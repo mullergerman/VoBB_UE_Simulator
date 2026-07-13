@@ -1,10 +1,10 @@
-"""Motor SQLite + seed inicial de 4 abonados."""
+"""Motor SQLite + seed inicial (perfil + 4 abonados) + resolución de perfiles."""
 import os
 
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from . import config
-from .models import Abonado
+from .models import SHARED_FIELDS, Abonado, Profile
 
 os.makedirs(os.path.dirname(config.DB_PATH), exist_ok=True)
 engine = create_engine(
@@ -28,6 +28,7 @@ def _migrate() -> None:
     """
     new_cols = {
         "registrar_uri": "VARCHAR DEFAULT ''",
+        "profile_id": "INTEGER",
     }
     with engine.connect() as conn:
         existing = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(abonado)").fetchall()}
@@ -38,31 +39,53 @@ def _migrate() -> None:
 
 
 def _seed() -> None:
-    """Crea 4 abonados por defecto (1001-1004) si la tabla está vacía."""
+    """Crea un perfil por defecto + 4 abonados (1001-1004) si no hay abonados."""
     with Session(engine) as session:
-        existing = session.exec(select(Abonado)).first()
-        if existing:
+        if session.exec(select(Abonado)).first():
             return
+        prof = Profile(
+            name="Local (Kamailio)",
+            domain=config.LOCAL_DOMAIN,
+            pcscf_addr=config.LOCAL_REGISTRAR,
+            pcscf_port=5060,
+            transport="udp",
+            auth_realm="",
+            registrar_uri="",
+            codec_pref="PCMU,PCMA",
+            alerting_delay_s=3,
+            echo_enabled=True,
+            reg_expires=600,
+        )
+        session.add(prof)
+        session.commit()
+        session.refresh(prof)
         for i in range(1, 5):
             num = str(1000 + i)
             session.add(
                 Abonado(
                     display_name=f"Abonado {num}",
                     line_number=num,
-                    domain=config.LOCAL_DOMAIN,
-                    pcscf_addr=config.LOCAL_REGISTRAR,
-                    pcscf_port=5060,
-                    transport="udp",
                     auth_user=num,
                     auth_password=f"pass{num}",
-                    auth_realm="",   # vacío => comodín "*" (responde cualquier realm)
-                    codec_pref="PCMU,PCMA",
-                    alerting_delay_s=3,
-                    echo_enabled=True,
-                    reg_expires=600,
+                    profile_id=prof.id,
                 )
             )
         session.commit()
+
+
+def resolve_abonado(ab: Abonado, session: Session) -> Abonado:
+    """Devuelve una copia del abonado con los campos compartidos resueltos desde
+    su perfil (si referencia uno). No persiste; es solo para el motor SIP.
+    """
+    if ab.profile_id is None:
+        return ab
+    prof = session.get(Profile, ab.profile_id)
+    if prof is None:
+        return ab
+    data = ab.model_dump()
+    for f in SHARED_FIELDS:
+        data[f] = getattr(prof, f)
+    return Abonado(**data)
 
 
 def get_session() -> Session:

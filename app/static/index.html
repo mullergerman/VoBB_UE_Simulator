@@ -17,6 +17,23 @@
   </header>
 
   <main>
+    <!-- ================= Perfiles ================= -->
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Perfiles</h2>
+        <button id="btn-new-profile" class="primary">+ Nuevo perfil</button>
+      </div>
+      <table id="profiles-table">
+        <thead>
+          <tr>
+            <th>Nombre</th><th>Dominio</th><th>P-CSCF</th><th>Realm</th>
+            <th>Registrar-URI</th><th>Codecs</th><th>Alert</th><th>Eco</th><th>Abonados</th><th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody id="profiles-body"></tbody>
+      </table>
+    </section>
+
     <!-- ================= Abonados ================= -->
     <section class="panel">
       <div class="panel-head">
@@ -26,7 +43,7 @@
       <table id="abonados-table">
         <thead>
           <tr>
-            <th>Reg</th><th>Línea</th><th>Dominio</th><th>P-CSCF</th>
+            <th>Reg</th><th>Línea</th><th>Perfil</th><th>Dominio</th><th>P-CSCF</th>
             <th>Usuario</th><th>Password</th><th>Alert</th><th>Eco</th><th>Acciones</th>
           </tr>
         </thead>
@@ -95,33 +112,73 @@
     </section>
   </main>
 
-  <!-- Modal de alta/edición -->
+  <!-- Modal de alta/edición de ABONADO -->
   <div id="modal" class="modal hidden">
     <div class="modal-box">
       <h3 id="modal-title">Nuevo abonado</h3>
       <form id="abonado-form">
         <input type="hidden" name="id" />
+        <label class="full">Perfil
+          <select name="profile_id" id="ab-profile"></select>
+        </label>
+        <p class="hint">Con un perfil, los campos de red/comportamiento se heredan; solo definís los datos propios del abonado.</p>
         <div class="form-grid">
+          <!-- Campos propios del abonado -->
           <label>Display name<input name="display_name" /></label>
-          <label>Línea (número)<input name="line_number" required /></label>
+          <label>Línea (número / IMPU)<input name="line_number" required /></label>
+          <label>Auth user (IMPI)<input name="auth_user" /></label>
+          <label>Password (plano)<input name="auth_password" /></label>
+          <label class="chk">Habilitado<input name="enabled" type="checkbox" checked /></label>
+        </div>
+        <!-- Campos compartidos (se ocultan cuando hay perfil) -->
+        <div id="ab-shared">
+          <div class="shared-sep">Parámetros de red / comportamiento</div>
+          <div class="form-grid">
+            <label>Dominio<input name="domain" /></label>
+            <label>P-CSCF addr<input name="pcscf_addr" /></label>
+            <label>P-CSCF port<input name="pcscf_port" type="number" value="5060" /></label>
+            <label>Transporte
+              <select name="transport"><option>udp</option><option>tcp</option></select>
+            </label>
+            <label>Realm (vacío = cualquiera)<input name="auth_realm" placeholder="* (cualquier realm)" /></label>
+            <label>Registrar/Request-URI (vacío = dominio)<input name="registrar_uri" placeholder="ej. sip:100.103.6.12 (IP P-CSCF)" /></label>
+            <label>Codecs<input name="codec_pref" value="PCMU,PCMA" /></label>
+            <label>Alerting (s)<input name="alerting_delay_s" type="number" value="3" /></label>
+            <label>Reg expires<input name="reg_expires" type="number" value="600" /></label>
+            <label class="chk">Eco<input name="echo_enabled" type="checkbox" checked /></label>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button type="button" id="btn-cancel">Cancelar</button>
+          <button type="submit" class="primary">Guardar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal de alta/edición de PERFIL -->
+  <div id="profile-modal" class="modal hidden">
+    <div class="modal-box">
+      <h3 id="profile-modal-title">Nuevo perfil</h3>
+      <form id="profile-form">
+        <input type="hidden" name="id" />
+        <div class="form-grid">
+          <label>Nombre<input name="name" required /></label>
           <label>Dominio<input name="domain" required /></label>
           <label>P-CSCF addr<input name="pcscf_addr" required /></label>
           <label>P-CSCF port<input name="pcscf_port" type="number" value="5060" /></label>
           <label>Transporte
             <select name="transport"><option>udp</option><option>tcp</option></select>
           </label>
-          <label>Auth user (IMPI)<input name="auth_user" /></label>
-          <label>Password (plano)<input name="auth_password" /></label>
           <label>Realm (vacío = cualquiera)<input name="auth_realm" placeholder="* (cualquier realm)" /></label>
           <label>Registrar/Request-URI (vacío = dominio)<input name="registrar_uri" placeholder="ej. sip:100.103.6.12 (IP P-CSCF)" /></label>
           <label>Codecs<input name="codec_pref" value="PCMU,PCMA" /></label>
           <label>Alerting (s)<input name="alerting_delay_s" type="number" value="3" /></label>
           <label>Reg expires<input name="reg_expires" type="number" value="600" /></label>
           <label class="chk">Eco<input name="echo_enabled" type="checkbox" checked /></label>
-          <label class="chk">Habilitado<input name="enabled" type="checkbox" checked /></label>
         </div>
         <div class="modal-actions">
-          <button type="button" id="btn-cancel">Cancelar</button>
+          <button type="button" id="btn-cancel-profile">Cancelar</button>
           <button type="submit" class="primary">Guardar</button>
         </div>
       </form>
