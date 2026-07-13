@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>VoBB UE Simulator</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <header>
+    <h1>VoBB <span>UE Simulator</span></h1>
+    <div class="engine">
+      <span id="ws-dot" class="dot"></span>
+      <span id="engine-status">conectando…</span>
+      <span id="mode-badge" class="badge"></span>
+    </div>
+  </header>
+
+  <main>
+    <!-- ================= Abonados ================= -->
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Abonados</h2>
+        <button id="btn-new" class="primary">+ Nuevo abonado</button>
+      </div>
+      <table id="abonados-table">
+        <thead>
+          <tr>
+            <th>Reg</th><th>Línea</th><th>Dominio</th><th>P-CSCF</th>
+            <th>Usuario</th><th>Password</th><th>Alert</th><th>Eco</th><th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody id="abonados-body"></tbody>
+      </table>
+    </section>
+
+    <!-- ================= Control de llamadas ================= -->
+    <section class="panel">
+      <div class="panel-head"><h2>Control de llamadas</h2></div>
+      <div class="call-controls">
+        <label>Origen
+          <select id="call-from"></select>
+        </label>
+        <span class="arrow">→</span>
+        <label>Destino
+          <select id="call-to"></select>
+        </label>
+        <button id="btn-call" class="primary">Llamar</button>
+        <button id="btn-hangup-all" class="danger">Colgar todas</button>
+      </div>
+      <table id="calls-table">
+        <thead>
+          <tr><th>Estado</th><th>Línea</th><th>Remoto</th><th>Call-ID</th><th>Últ. código</th><th></th></tr>
+        </thead>
+        <tbody id="calls-body"></tbody>
+      </table>
+    </section>
+
+    <!-- ================= Detalle por abonado ================= -->
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Detalle en vivo</h2>
+        <select id="detail-select"></select>
+      </div>
+      <div class="detail-grid">
+        <div class="detail-col">
+          <h3>Señalización SIP</h3>
+          <div id="sip-console" class="console"></div>
+        </div>
+        <div class="detail-col">
+          <h3>Estadísticas RTP</h3>
+          <div id="rtp-stats" class="rtp"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Modal de alta/edición -->
+  <div id="modal" class="modal hidden">
+    <div class="modal-box">
+      <h3 id="modal-title">Nuevo abonado</h3>
+      <form id="abonado-form">
+        <input type="hidden" name="id" />
+        <div class="form-grid">
+          <label>Display name<input name="display_name" /></label>
+          <label>Línea (número)<input name="line_number" required /></label>
+          <label>Dominio<input name="domain" required /></label>
+          <label>P-CSCF addr<input name="pcscf_addr" required /></label>
+          <label>P-CSCF port<input name="pcscf_port" type="number" value="5060" /></label>
+          <label>Transporte
+            <select name="transport"><option>udp</option><option>tcp</option></select>
+          </label>
+          <label>Auth user (IMPI)<input name="auth_user" /></label>
+          <label>Password (plano)<input name="auth_password" /></label>
+          <label>Realm (opc.)<input name="auth_realm" /></label>
+          <label>Codecs<input name="codec_pref" value="PCMU,PCMA" /></label>
+          <label>Alerting (s)<input name="alerting_delay_s" type="number" value="3" /></label>
+          <label>Reg expires<input name="reg_expires" type="number" value="600" /></label>
+          <label class="chk">Eco<input name="echo_enabled" type="checkbox" checked /></label>
+          <label class="chk">Habilitado<input name="enabled" type="checkbox" checked /></label>
+        </div>
+        <div class="modal-actions">
+          <button type="button" id="btn-cancel">Cancelar</button>
+          <button type="submit" class="primary">Guardar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

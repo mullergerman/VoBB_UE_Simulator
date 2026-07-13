@@ -1,0 +1,7 @@
+.venv
+data
+*.db
+__pycache__
+*.pyc
+.git
+/tmp

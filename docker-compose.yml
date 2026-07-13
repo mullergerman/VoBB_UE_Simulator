@@ -1,0 +1,55 @@
+# ---------------------------------------------------------------------------
+# Perfiles:
+#   local -> app (red bridge) + registrar Kamailio embebido. Test UE-a-UE en
+#            este host, sin core IMS. Media interno al contenedor.
+#   ims   -> app-ims con network_mode: host, apuntando al P-CSCF real (VM Linux).
+#
+# Uso:
+#   docker compose --profile local up --build      (macOS o Linux, test local)
+#   docker compose --profile ims   up --build      (VM Linux, contra IMS real)
+# ---------------------------------------------------------------------------
+services:
+  # ----- Modo local: app en bridge + registrar embebido -----
+  app:
+    build: .
+    image: vobb-ue-sim:latest
+    profiles: ["local"]
+    depends_on: [registrar]
+    environment:
+      MODE: local
+      LOCAL_REGISTRAR: registrar        # nombre de servicio = P-CSCF simulado
+      LOCAL_DOMAIN: vobb.test
+      SIP_PORT: "5060"
+      RTP_PORT_START: "4000"
+      PJSUA_LOG_LEVEL: "4"
+    ports:
+      - "8080:8080"                     # interfaz web
+    volumes:
+      - vobb-data:/srv/data
+
+  registrar:
+    build: ./kamailio
+    image: vobb-registrar:latest
+    profiles: ["local"]
+    volumes:
+      - ./kamailio/kamailio.cfg:/etc/kamailio/kamailio.cfg:ro
+    expose:
+      - "5060/udp"
+
+  # ----- Modo IMS: app con host networking contra P-CSCF real -----
+  app-ims:
+    build: .
+    image: vobb-ue-sim:latest
+    profiles: ["ims"]
+    network_mode: host                  # SIP/RTP reales hacia el P-CSCF
+    environment:
+      MODE: ims
+      SIP_PORT: "5060"
+      RTP_PORT_START: "4000"
+      PJSUA_LOG_LEVEL: "4"
+      HTTP_PORT: "8080"
+    volumes:
+      - vobb-data:/srv/data
+
+volumes:
+  vobb-data:
