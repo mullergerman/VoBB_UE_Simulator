@@ -320,6 +320,23 @@ class PjsuaManager:
         )
         cred = pj.AuthCredInfo("digest", realm, ab.auth_user or ab.line_number, 0, ab.auth_password)
         cfg.sipConfig.authCreds.append(cred)
+
+        # --- Perfil "UA IMS clásico" ---
+        # Desactivar RFC 5626 outbound: elimina el ";ob" del Contact y las
+        # opciones outbound/path del Supported, que algunos P-CSCF rechazan.
+        cfg.natConfig.sipOutboundUse = 0
+        # Contact con transporte explícito, como los UE reales:
+        #   <sip:user@ip:port;transport=udp>
+        cfg.regConfig.contactUriParams = f";transport={ab.transport}"
+        # Headers típicos de un UE IMS en el REGISTER (igualan al equipo real).
+        for name, val in (
+            ("Supported", "100rel,replaces,timer,privacy,in-dialog"),
+            ("Accept", "application/sdp,application/simservs+xml"),
+        ):
+            h = pj.SipHeader()
+            h.hName = name
+            h.hValue = val
+            cfg.regConfig.headers.append(h)
         return cfg
 
     def register(self, abonado_id: int, renew: bool = True) -> None:
