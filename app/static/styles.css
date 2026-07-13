@@ -156,3 +156,28 @@ label.full { margin-bottom: 6px; }
 .profile-pill.none { color: var(--muted); }
 .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
 .empty { color: var(--muted); padding: 14px 16px; font-size: 13px; }
+
+/* --- Login --- */
+.login-screen { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: var(--bg); z-index: 50; }
+.login-box { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 32px; width: 360px; max-width: 92vw; display: flex; flex-direction: column; gap: 14px; }
+.login-box h1 { margin: 0; font-size: 22px; text-align: center; }
+.login-box h1 span { color: var(--accent); font-weight: 400; }
+.login-sub { margin: 0 0 6px; text-align: center; color: var(--muted); font-size: 13px; }
+.login-box label { display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: var(--muted); }
+.login-box button { padding: 10px; font-size: 14px; margin-top: 4px; }
+.login-error { background: rgba(248,81,73,.12); border: 1px solid rgba(248,81,73,.4); color: #ff7b72; padding: 8px 10px; border-radius: 6px; font-size: 12px; }
+.hidden { display: none !important; }
+
+/* --- Header usuario --- */
+.sep { color: var(--border); }
+.user-chip { color: var(--text); font-size: 13px; }
+.user-chip .role { color: var(--accent); font-size: 11px; margin-left: 4px; }
+
+/* --- Permisos / usuarios --- */
+.perm-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 4px; }
+.perm-grid label { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text); }
+#user-numbers { width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 8px; font-family: var(--mono); font-size: 12px; resize: vertical; }
+.perm-tag { background: var(--panel2); border: 1px solid var(--border); border-radius: 10px; padding: 1px 7px; font-size: 10px; color: #9db2ff; margin-right: 3px; }
+.role-badge { padding: 1px 8px; border-radius: 10px; font-size: 11px; }
+.role-badge.admin { background: rgba(163,113,247,.18); color: #c6a0ff; border: 1px solid rgba(163,113,247,.4); }
+.role-badge.user { background: var(--panel2); color: var(--muted); border: 1px solid var(--border); }

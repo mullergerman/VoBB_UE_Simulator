@@ -1,6 +1,9 @@
 "use strict";
 
 // ---------------- Estado en memoria ----------------
+let token = localStorage.getItem("vobb_token") || null;
+let currentUser = null;       // { id, username, is_admin, permissions, ... }
+let users = [];               // lista de usuarios (solo admin)
 let abonados = [];
 let profiles = [];            // perfiles (parámetros compartidos)
 const SHARED_FIELDS = ["domain","pcscf_addr","pcscf_port","transport","auth_realm","registrar_uri","codec_pref","alerting_delay_s","echo_enabled","reg_expires"];
@@ -21,12 +24,20 @@ let sipSeq = 0;
 const $ = (s) => document.querySelector(s);
 const el = (tag, cls, txt) => { const e = document.createElement(tag); if (cls) e.className = cls; if (txt != null) e.textContent = txt; return e; };
 async function api(method, url, body) {
-  const opt = { method, headers: { "Content-Type": "application/json" } };
+  const headers = { "Content-Type": "application/json" };
+  if (token) headers["Authorization"] = "Bearer " + token;
+  const opt = { method, headers };
   if (body) opt.body = JSON.stringify(body);
   const r = await fetch(url, opt);
-  if (!r.ok) { const t = await r.text(); alert("Error: " + t); throw new Error(t); }
+  if (r.status === 401) { showLogin(); throw new Error("No autenticado"); }
+  if (!r.ok) {
+    let msg = await r.text();
+    try { msg = JSON.parse(msg).detail || msg; } catch (e) {}
+    alert("Error: " + msg); throw new Error(msg);
+  }
   return r.status === 204 ? null : r.json().catch(() => null);
 }
+const can = (perm) => currentUser && (currentUser.is_admin || (currentUser.permissions || []).includes(perm));
 const fmtTime = (ms) => new Date(ms).toLocaleTimeString("es-AR", { hour12: false }) + "." + String(ms % 1000).padStart(3, "0");
 const now = () => fmtTime(Date.now());
 
@@ -34,12 +45,33 @@ const now = () => fmtTime(Date.now());
 async function loadAll() {
   profiles = await api("GET", "/api/profiles");
   abonados = await api("GET", "/api/abonados");
+  if (currentUser && currentUser.is_admin) users = await api("GET", "/api/users");
+  applyGating();
   renderProfiles();
   renderAbonados();
+  if (currentUser && currentUser.is_admin) renderUsers();
   renderCallSelectors();
   renderDetailSelector();
 }
 async function loadAbonados() { await loadAll(); }
+
+// Muestra/oculta paneles y botones según permisos del usuario.
+function applyGating() {
+  const admin = currentUser && currentUser.is_admin;
+  $("#users-panel").hidden = !admin;
+  $("#btn-new-profile").style.display = can("manage_profiles") ? "" : "none";
+  $("#btn-new").style.display = can("edit_abonados") ? "" : "none";
+  // Controles de llamada
+  const callable = can("control_calls");
+  for (const id of ["#btn-call", "#btn-hangup-all"]) $(id).style.display = callable ? "" : "none";
+  // Chip de usuario
+  const uc = $("#current-user");
+  if (currentUser) {
+    uc.textContent = currentUser.display_name || currentUser.username;
+    const role = el("span", "role", admin ? "admin" : "usuario");
+    uc.appendChild(role);
+  }
+}
 
 const profileById = (id) => profiles.find((p) => String(p.id) === String(id));
 
@@ -78,11 +110,16 @@ function renderAbonados() {
     tr.appendChild(el("td", null, e.echo_enabled ? "sí" : "no"));
 
     const act = el("td");
-    const bReg = el("button", "small", rs.active ? "Unreg" : "Reg");
-    bReg.onclick = () => api("POST", `/api/abonados/${a.id}/${rs.active ? "unregister" : "register"}`);
-    const bEdit = el("button", "small", "Editar"); bEdit.onclick = () => openModal(a);
-    const bDel = el("button", "small danger", "✕"); bDel.onclick = () => { if (confirm("¿Borrar abonado " + a.line_number + "?")) api("DELETE", `/api/abonados/${a.id}`).then(loadAbonados); };
-    act.append(bReg, bEdit, bDel);
+    if (can("edit_abonados") || can("control_calls")) {
+      const bReg = el("button", "small", rs.active ? "Unreg" : "Reg");
+      bReg.onclick = () => api("POST", `/api/abonados/${a.id}/${rs.active ? "unregister" : "register"}`);
+      act.appendChild(bReg);
+    }
+    if (can("edit_abonados")) {
+      const bEdit = el("button", "small", "Editar"); bEdit.onclick = () => openModal(a);
+      const bDel = el("button", "small danger", "✕"); bDel.onclick = () => { if (confirm("¿Borrar abonado " + a.line_number + "?")) api("DELETE", `/api/abonados/${a.id}`).then(loadAll); };
+      act.append(bEdit, bDel);
+    }
     tr.appendChild(act);
     tb.appendChild(tr);
   }
@@ -105,13 +142,15 @@ function renderProfiles() {
     tr.appendChild(el("td", null, p.echo_enabled ? "sí" : "no"));
     tr.appendChild(el("td", null, String(used)));
     const act = el("td");
-    const bEdit = el("button", "small", "Editar"); bEdit.onclick = () => openProfileModal(p);
-    const bDel = el("button", "small danger", "✕");
-    bDel.onclick = () => {
-      const msg = used ? `El perfil "${p.name}" lo usan ${used} abonado(s). Se desvincularán (conservando esta config). ¿Continuar?` : `¿Borrar perfil "${p.name}"?`;
-      if (confirm(msg)) api("DELETE", `/api/profiles/${p.id}`).then(loadAll);
-    };
-    act.append(bEdit, bDel);
+    if (can("manage_profiles")) {
+      const bEdit = el("button", "small", "Editar"); bEdit.onclick = () => openProfileModal(p);
+      const bDel = el("button", "small danger", "✕");
+      bDel.onclick = () => {
+        const msg = used ? `El perfil "${p.name}" lo usan ${used} abonado(s). Se desvincularán (conservando esta config). ¿Continuar?` : `¿Borrar perfil "${p.name}"?`;
+        if (confirm(msg)) api("DELETE", `/api/profiles/${p.id}`).then(loadAll);
+      };
+      act.append(bEdit, bDel);
+    }
     tr.appendChild(act);
     tb.appendChild(tr);
   }
@@ -293,11 +332,13 @@ function renderRtp() {
 }
 
 // ---------------- WebSocket ----------------
+let ws = null;
 function connectWs() {
+  if (!token) return;
   const proto = location.protocol === "https:" ? "wss" : "ws";
-  const ws = new WebSocket(`${proto}://${location.host}/ws`);
+  ws = new WebSocket(`${proto}://${location.host}/ws?token=${encodeURIComponent(token)}`);
   ws.onopen = () => { $("#ws-dot").className = "dot on"; };
-  ws.onclose = () => { $("#ws-dot").className = "dot off"; setTimeout(connectWs, 1500); };
+  ws.onclose = () => { $("#ws-dot").className = "dot off"; if (token) setTimeout(connectWs, 1500); };
   ws.onmessage = (ev) => handleEvent(JSON.parse(ev.data));
 }
 
@@ -451,9 +492,145 @@ $("#profile-form").onsubmit = async (ev) => {
   await loadAll();
 };
 
+// ---------------- Usuarios (admin) ----------------
+const ALL_PERMS = { edit_abonados: "Abonados", control_calls: "Llamadas", manage_profiles: "Perfiles" };
+
+function renderUsers() {
+  const tb = $("#users-body");
+  tb.innerHTML = "";
+  if (!users.length) { tb.innerHTML = '<tr><td colspan="7" class="empty">Sin usuarios</td></tr>'; return; }
+  for (const u of users) {
+    const tr = el("tr");
+    tr.appendChild(el("td", "mono", u.username));
+    tr.appendChild(el("td", null, u.display_name || ""));
+    const roleTd = el("td");
+    roleTd.appendChild(el("span", "role-badge " + (u.is_admin ? "admin" : "user"), u.is_admin ? "admin" : "usuario"));
+    tr.appendChild(roleTd);
+    const permTd = el("td");
+    if (u.is_admin) permTd.appendChild(el("span", "perm-tag", "todos"));
+    else for (const p of (u.permissions || [])) permTd.appendChild(el("span", "perm-tag", ALL_PERMS[p] || p));
+    tr.appendChild(permTd);
+    tr.appendChild(el("td", "mono", (u.numbers || []).map((n) => n.end && n.end !== n.start ? `${n.start}-${n.end}` : n.start).join(", ") || "—"));
+    tr.appendChild(el("td", null, u.enabled ? "activo" : "deshabilitado"));
+    const act = el("td");
+    const bEdit = el("button", "small", "Editar"); bEdit.onclick = () => openUserModal(u);
+    const bDel = el("button", "small danger", "✕");
+    bDel.onclick = () => { if (confirm(`¿Borrar usuario "${u.username}"?`)) api("DELETE", `/api/users/${u.id}`).then(loadAll); };
+    act.append(bEdit, bDel);
+    tr.appendChild(act);
+    tb.appendChild(tr);
+  }
+}
+
+function openUserModal(u) {
+  const f = $("#user-form");
+  f.reset();
+  $("#user-modal-title").textContent = u ? "Editar usuario: " + u.username : "Nuevo usuario";
+  f.elements.id.value = u ? u.id : "";
+  if (u) {
+    f.elements.username.value = u.username;
+    f.elements.display_name.value = u.display_name || "";
+    f.elements.is_admin.checked = !!u.is_admin;
+    f.elements.enabled.checked = !!u.enabled;
+    $("#user-numbers").value = (u.numbers || []).map((n) => n.end && n.end !== n.start ? `${n.start}-${n.end}` : n.start).join("\n");
+  }
+  const perms = u ? (u.permissions || []) : [];
+  for (const chk of f.querySelectorAll(".perm")) chk.checked = perms.includes(chk.value);
+  $("#user-modal").classList.remove("hidden");
+}
+function closeUserModal() { $("#user-modal").classList.add("hidden"); }
+
+function parseNumbers(text) {
+  const out = [];
+  for (const raw of text.split(/\n+/)) {
+    const line = raw.trim();
+    if (!line) continue;
+    // Rango "a-b" respetando el "+" inicial (split por guion que no sea el signo).
+    const m = line.match(/^(\+?[^-\s]+)\s*-\s*(\+?[^-\s]+)$/);
+    if (m) out.push({ start: m[1], end: m[2] });
+    else out.push({ start: line, end: "" });
+  }
+  return out;
+}
+
+$("#user-form").onsubmit = async (ev) => {
+  ev.preventDefault();
+  const f = ev.target;
+  const perms = [...f.querySelectorAll(".perm")].filter((c) => c.checked).map((c) => c.value);
+  const data = {
+    username: f.elements.username.value.trim(),
+    display_name: f.elements.display_name.value,
+    is_admin: f.elements.is_admin.checked,
+    enabled: f.elements.enabled.checked,
+    permissions: perms,
+    numbers: parseNumbers($("#user-numbers").value),
+  };
+  const pwd = f.elements.password.value;
+  if (pwd) data.password = pwd;
+  const id = f.elements.id.value;
+  if (id) await api("PUT", "/api/users/" + id, data);
+  else {
+    if (!pwd) { alert("La contraseña es obligatoria para un usuario nuevo"); return; }
+    await api("POST", "/api/users", data);
+  }
+  closeUserModal();
+  await loadAll();
+};
+
+// ---------------- Autenticación ----------------
+function showLogin() {
+  $("#app").classList.add("hidden");
+  $("#login-screen").classList.remove("hidden");
+}
+function showApp() {
+  $("#login-screen").classList.add("hidden");
+  $("#app").classList.remove("hidden");
+}
+async function bootstrap() {
+  // Deep-link opcional: #token=... (se guarda y se limpia del address bar).
+  const m = location.hash.match(/token=([^&]+)/);
+  if (m) { token = decodeURIComponent(m[1]); localStorage.setItem("vobb_token", token); history.replaceState(null, "", location.pathname); }
+  if (!token) { showLogin(); return; }
+  try {
+    currentUser = await api("GET", "/api/auth/me");
+  } catch (e) { showLogin(); return; }
+  showApp();
+  await loadAll();
+  connectWs();
+}
+function logout() {
+  token = null; localStorage.removeItem("vobb_token"); currentUser = null;
+  if (ws) { try { ws.close(); } catch (e) {} }
+  showLogin();
+}
+
+$("#login-form").onsubmit = async (ev) => {
+  ev.preventDefault();
+  const f = ev.target;
+  const errBox = $("#login-error"); errBox.classList.add("hidden");
+  try {
+    const r = await fetch("/api/auth/login", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: f.username.value, password: f.password.value }),
+    });
+    if (!r.ok) { const t = await r.json().catch(() => ({})); throw new Error(t.detail || "Error de login"); }
+    const d = await r.json();
+    token = d.token; localStorage.setItem("vobb_token", token); currentUser = d.user;
+    f.reset();
+    showApp();
+    await loadAll();
+    connectWs();
+  } catch (e) {
+    errBox.textContent = e.message; errBox.classList.remove("hidden");
+  }
+};
+$("#btn-logout").onclick = logout;
+
 // ---------------- Eventos UI ----------------
 $("#btn-new").onclick = () => openModal(null);
 $("#btn-cancel").onclick = closeModal;
+$("#btn-new-user").onclick = () => openUserModal(null);
+$("#btn-cancel-user").onclick = closeUserModal;
 $("#btn-new-profile").onclick = () => openProfileModal(null);
 $("#btn-cancel-profile").onclick = closeProfileModal;
 $("#btn-call").onclick = () => api("POST", "/api/calls", { from_id: Number($("#call-from").value), to_number: $("#call-to").value });
@@ -472,10 +649,7 @@ $("#sip-autoscroll").onchange = (e) => { sipAutoscroll = e.target.checked; if (s
 $("#sip-clear").onclick = () => { sipAll.length = 0; sipOpen.clear(); renderSip(); };
 
 // ---------------- Init ----------------
-// Cargar abonados ANTES de conectar el WS para que el replay de señalización
-// (que llega apenas conecta) pueda atribuirse correctamente.
-(async () => {
-  await loadAll();
-  connectWs();
-})();
-setInterval(() => { renderCalls(); }, 2000);
+// bootstrap() valida el token (o muestra login), y recién ahí carga datos y
+// conecta el WS (para que el replay de señalización se atribuya correctamente).
+bootstrap();
+setInterval(() => { if (currentUser) renderCalls(); }, 2000);

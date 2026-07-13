@@ -8,6 +8,27 @@ con autenticación **Digest MD5** (password en plano), y al recibir una llamada 
 Incluye una **interfaz web de gestión** para dar de alta abonados, originar/cortar llamadas,
 y visualizar en tiempo real la **señalización SIP** y las **estadísticas RTP** de cada abonado.
 
+## Usuarios, login y permisos
+
+La plataforma tiene **control de acceso**. Al abrir la web se pide login. Arranca con un
+usuario administrador por defecto:
+
+- **Usuario:** `admin` · **Contraseña:** `admin` (⚠️ cambiala en el primer acceso, o definí
+  `ADMIN_USER` / `ADMIN_PASSWORD` por entorno antes del primer arranque).
+
+El **administrador** puede crear usuarios, asignarles permisos y numeración:
+
+- **Permisos** (para usuarios no admin): `Gestionar abonados`, `Controlar llamadas`,
+  `Gestionar perfiles`. El admin tiene todo + gestión de usuarios.
+- **Numeración por usuario**: se asignan números o rangos (ej. `1000-1099`, `+541148519500`).
+  Un usuario solo ve/gestiona los abonados cuya línea cae en su numeración. La señalización
+  SIP y las estadísticas RTP por WebSocket también se filtran por numeración.
+- **Abonados compartidos**: si la misma línea entra en la numeración de varios usuarios,
+  el abonado queda compartido entre ellos.
+
+Autenticación por token firmado (HMAC, stateless) enviado como `Authorization: Bearer`; el
+secreto se genera y persiste en el volumen de datos (`data/secret.key`).
+
 ## Perfiles
 
 Un **Perfil** agrupa los parámetros de red/comportamiento compartidos (dominio, P-CSCF,
@@ -109,6 +130,8 @@ SIP_DISABLED=1 .venv/bin/uvicorn app.main:app --port 8080
 | `LOCAL_REGISTRAR` | `127.0.0.1` | P-CSCF del seed inicial (modo local: `registrar`) |
 | `LOCAL_DOMAIN` | `vobb.test` | dominio del seed inicial |
 | `SIP_DISABLED` | — | `1` para arrancar sin motor SIP (sólo web) |
+| `ADMIN_USER` | `admin` | usuario admin creado en el primer arranque |
+| `ADMIN_PASSWORD` | `admin` | contraseña del admin inicial (cambiar) |
 
 ## Modelo de abonado
 

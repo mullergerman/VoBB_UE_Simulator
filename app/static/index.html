@@ -7,16 +7,49 @@
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
+  <!-- ===== Pantalla de login ===== -->
+  <div id="login-screen" class="login-screen hidden">
+    <form id="login-form" class="login-box">
+      <h1>VoBB <span>UE Simulator</span></h1>
+      <p class="login-sub">Iniciá sesión para continuar</p>
+      <label>Usuario<input name="username" autocomplete="username" required autofocus /></label>
+      <label>Contraseña<input name="password" type="password" autocomplete="current-password" required /></label>
+      <div id="login-error" class="login-error hidden"></div>
+      <button type="submit" class="primary">Ingresar</button>
+    </form>
+  </div>
+
+  <!-- ===== App ===== -->
+  <div id="app" class="hidden">
   <header>
     <h1>VoBB <span>UE Simulator</span></h1>
     <div class="engine">
       <span id="ws-dot" class="dot"></span>
       <span id="engine-status">conectando…</span>
       <span id="mode-badge" class="badge"></span>
+      <span class="sep">|</span>
+      <span id="current-user" class="user-chip"></span>
+      <button id="btn-logout" class="small">Salir</button>
     </div>
   </header>
 
   <main>
+    <!-- ================= Usuarios (solo admin) ================= -->
+    <section class="panel" id="users-panel" hidden>
+      <div class="panel-head">
+        <h2>Usuarios</h2>
+        <button id="btn-new-user" class="primary">+ Nuevo usuario</button>
+      </div>
+      <table id="users-table">
+        <thead>
+          <tr>
+            <th>Usuario</th><th>Nombre</th><th>Rol</th><th>Permisos</th><th>Numeración</th><th>Estado</th><th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody id="users-body"></tbody>
+      </table>
+    </section>
+
     <!-- ================= Perfiles ================= -->
     <section class="panel">
       <div class="panel-head">
@@ -184,6 +217,37 @@
       </form>
     </div>
   </div>
+
+  <!-- Modal de alta/edición de USUARIO -->
+  <div id="user-modal" class="modal hidden">
+    <div class="modal-box">
+      <h3 id="user-modal-title">Nuevo usuario</h3>
+      <form id="user-form">
+        <input type="hidden" name="id" />
+        <div class="form-grid">
+          <label>Usuario<input name="username" required /></label>
+          <label>Nombre a mostrar<input name="display_name" /></label>
+          <label>Contraseña<input name="password" type="password" placeholder="(dejar vacío = no cambia)" /></label>
+          <label class="chk">Administrador<input name="is_admin" type="checkbox" /></label>
+          <label class="chk">Habilitado<input name="enabled" type="checkbox" checked /></label>
+        </div>
+        <div class="shared-sep">Permisos (para usuarios no administradores)</div>
+        <div class="perm-grid">
+          <label class="chk"><input type="checkbox" class="perm" value="edit_abonados" /> Gestionar abonados</label>
+          <label class="chk"><input type="checkbox" class="perm" value="control_calls" /> Controlar llamadas</label>
+          <label class="chk"><input type="checkbox" class="perm" value="manage_profiles" /> Gestionar perfiles</label>
+        </div>
+        <div class="shared-sep">Numeración asignada</div>
+        <p class="hint">Un número o rango por línea. Ej: <code>1000-1099</code> o <code>+541148519500</code>. Si dos usuarios incluyen la misma línea, el abonado queda compartido.</p>
+        <textarea id="user-numbers" rows="4" placeholder="1000-1099&#10;2000&#10;+541148519500-+541148519599"></textarea>
+        <div class="modal-actions">
+          <button type="button" id="btn-cancel-user">Cancelar</button>
+          <button type="submit" class="primary">Guardar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+  </div><!-- /#app -->
 
   <script src="/app.js"></script>
 </body>

@@ -4,7 +4,7 @@ import os
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from . import config
-from .models import SHARED_FIELDS, Abonado, Profile
+from .models import SHARED_FIELDS, Abonado, Profile, User
 
 os.makedirs(os.path.dirname(config.DB_PATH), exist_ok=True)
 engine = create_engine(
@@ -17,6 +17,7 @@ def init_db() -> None:
     SQLModel.metadata.create_all(engine)
     _migrate()
     _seed()
+    _seed_admin()
 
 
 def _migrate() -> None:
@@ -71,6 +72,24 @@ def _seed() -> None:
                 )
             )
         session.commit()
+
+
+def _seed_admin() -> None:
+    """Crea un usuario admin inicial (admin/admin) si no hay usuarios."""
+    # Import local para evitar dependencia circular (auth importa db).
+    from .auth import hash_password
+    with Session(engine) as session:
+        if session.exec(select(User)).first():
+            return
+        user = os.environ.get("ADMIN_USER", "admin")
+        pwd = os.environ.get("ADMIN_PASSWORD", "admin")
+        salt, h = hash_password(pwd)
+        session.add(User(
+            username=user, display_name="Administrador",
+            password_salt=salt, password_hash=h, is_admin=True, enabled=True,
+        ))
+        session.commit()
+        print(f"[seed] Usuario admin creado: '{user}' (CAMBIAR EL PASSWORD por defecto)", flush=True)
 
 
 def resolve_abonado(ab: Abonado, session: Session) -> Abonado:

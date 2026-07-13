@@ -9,7 +9,7 @@ P-CSCF, realm, registrar-uri, codecs, alerting, eco, expires). Un abonado puede
 referenciar un perfil (profile_id) y heredar esos campos; solo define sus datos
 propios (línea, IMPI, password). Si no referencia perfil, usa sus campos propios.
 """
-from typing import Optional
+from typing import List, Optional
 
 from sqlmodel import Field, SQLModel
 
@@ -108,3 +108,63 @@ class ProfileUpdate(SQLModel):
     alerting_delay_s: Optional[int] = None
     echo_enabled: Optional[bool] = None
     reg_expires: Optional[int] = None
+
+
+# --------------------------------------------------------------------------
+# Usuarios (login + permisos) y su asignación de números/rangos.
+# --------------------------------------------------------------------------
+# Permisos disponibles para usuarios NO admin (el admin tiene todo + gestión
+# de usuarios). El acceso a un abonado se determina por los rangos del usuario.
+PERMISSIONS = ["edit_abonados", "control_calls", "manage_profiles"]
+
+
+class User(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    username: str = Field(index=True)
+    display_name: str = ""
+    password_salt: str = ""
+    password_hash: str = ""
+    is_admin: bool = False
+    enabled: bool = True
+    permissions: str = "[]"          # JSON list de permisos (para no-admin)
+
+
+class UserNumber(SQLModel, table=True):
+    """Número o rango de numeración asignado a un usuario. Un abonado cuyo
+    line_number caiga en algún rango de un usuario es visible/gestionable por él;
+    si cae en rangos de varios usuarios, queda compartido entre ellos."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(index=True)
+    start: str = ""                  # inicio del rango (o número único)
+    end: str = ""                    # fin del rango (vacío => = start)
+
+
+# ---- DTOs de la API ----
+class NumberRange(SQLModel):
+    start: str
+    end: str = ""
+
+
+class LoginRequest(SQLModel):
+    username: str
+    password: str
+
+
+class UserCreate(SQLModel):
+    username: str
+    password: str
+    display_name: str = ""
+    is_admin: bool = False
+    enabled: bool = True
+    permissions: List[str] = []
+    numbers: List[NumberRange] = []
+
+
+class UserUpdate(SQLModel):
+    username: Optional[str] = None
+    password: Optional[str] = None       # vacío/ausente => no cambia
+    display_name: Optional[str] = None
+    is_admin: Optional[bool] = None
+    enabled: Optional[bool] = None
+    permissions: Optional[List[str]] = None
+    numbers: Optional[List[NumberRange]] = None
