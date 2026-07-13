@@ -6,6 +6,7 @@ parsear método/estado + Call-ID + From/To, y publicarlos en el EventBus para qu
 la web los muestre en tiempo real y los atribuya a cada abonado.
 """
 import re
+import time
 
 try:
     import pjsua2 as pj
@@ -77,6 +78,7 @@ class SipLogWriter(_LOGWRITER_BASE):
                 summary=summary,
                 call_id=call_id,
                 raw=raw,
+                ts_ms=int(time.time() * 1000),
             )
         self._dir = None
         self._buf = []

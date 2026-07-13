@@ -4,11 +4,16 @@
 let abonados = [];
 const regState = {};          // abonado_id -> {active, code, reason}
 const calls = {};             // call_id -> {line, remote, state, last_code, abonado_id}
-const sipLog = {};            // abonado_id -> [ {dir, summary, raw, t} ]  (por call attribution best-effort)
-const sipByCallId = {};       // call_id -> abonado_id (para atribuir SIP)
+const sipAll = [];            // log global de mensajes SIP (se filtra por abonado al render)
+const sipByCallId = {};       // call_id -> abonado_id (atribución por llamada activa)
 const rtpByAbonado = {};      // abonado_id -> { call_id -> stats }
 let detailAbonado = null;
-const MAX_SIP = 200;
+const MAX_SIP = 300;
+let sipFilterText = "";
+let sipFilterDir = "all";
+let sipAutoscroll = true;
+const sipOpen = new Set();     // ids de mensajes SIP expandidos (persisten al re-render)
+let sipSeq = 0;
 
 // ---------------- Helpers ----------------
 const $ = (s) => document.querySelector(s);
@@ -20,7 +25,8 @@ async function api(method, url, body) {
   if (!r.ok) { const t = await r.text(); alert("Error: " + t); throw new Error(t); }
   return r.status === 204 ? null : r.json().catch(() => null);
 }
-const now = () => new Date().toLocaleTimeString("es-AR", { hour12: false }) + "." + String(Date.now() % 1000).padStart(3, "0");
+const fmtTime = (ms) => new Date(ms).toLocaleTimeString("es-AR", { hour12: false }) + "." + String(ms % 1000).padStart(3, "0");
+const now = () => fmtTime(Date.now());
 
 // ---------------- Carga inicial ----------------
 async function loadAbonados() {
@@ -112,21 +118,106 @@ function renderDetail() {
   renderRtp();
 }
 
+// Parsea el evento SIP crudo en una estructura para render enriquecido.
+function parseSip(e) {
+  const raw = e.raw || "";
+  const first = raw.split(/\r?\n/, 1)[0] || "";
+  let kind = "req", method = e.summary || "SIP", code = null, reason = "", detail = "";
+  let mResp = first.match(/^SIP\/2\.0\s+(\d{3})\s+(.*)$/);
+  let mReq = first.match(/^([A-Z]+)\s+(\S+)\s+SIP\/2\.0/);
+  if (mResp) {
+    kind = "resp"; code = parseInt(mResp[1], 10); reason = mResp[2].trim();
+    method = code + ""; detail = reason;
+    // CSeq revela a qué método responde
+    const cs = raw.match(/^CSeq:\s*\d+\s+(\w+)/im);
+    if (cs) detail = `${reason}  ·  ${cs[1]}`;
+  } else if (mReq) {
+    kind = "req"; method = mReq[1]; detail = mReq[2].replace(/^sip:/, "");
+  }
+  const callid = (raw.match(/^Call-ID:\s*(.+)$/im) || [])[1] || e.call_id || "";
+  const t = e.ts_ms ? fmtTime(e.ts_ms) : now();
+  return { id: ++sipSeq, dir: e.direction, kind, method, code, reason, detail,
+           callid: callid.trim(), raw, t };
+}
+
+function sipBadgeClass(r) {
+  if (r.kind === "resp") return "b-" + Math.floor(r.code / 100) + "xx";
+  const m = r.method.toUpperCase();
+  if (m === "INVITE") return "b-invite";
+  if (m === "BYE" || m === "CANCEL") return "b-bye";
+  return "b-req";
+}
+
+function sipMatchesFilter(r) {
+  if (sipFilterDir !== "all" && r.dir !== sipFilterDir) return false;
+  if (sipFilterText) {
+    const hay = (r.method + " " + r.detail + " " + r.callid + " " + r.raw).toLowerCase();
+    if (!hay.includes(sipFilterText)) return false;
+  }
+  return true;
+}
+
+// Construye el bloque raw con resaltado de start-line, headers y body.
+function renderRaw(raw) {
+  const wrap = el("div", "sipraw");
+  const actions = el("div", "raw-actions");
+  const copyBtn = el("button", "small", "Copiar");
+  copyBtn.onclick = (ev) => { ev.stopPropagation(); navigator.clipboard?.writeText(raw); copyBtn.textContent = "✓"; setTimeout(() => copyBtn.textContent = "Copiar", 1000); };
+  actions.appendChild(copyBtn);
+  wrap.appendChild(actions);
+  const lines = raw.split(/\r?\n/);
+  let inBody = false;
+  lines.forEach((ln, i) => {
+    if (ln === "") { inBody = true; }
+    const div = el("div", "rawline");
+    if (i === 0) { div.classList.add("start"); div.textContent = ln; }
+    else if (inBody) { div.classList.add("body"); div.textContent = ln; }
+    else {
+      const idx = ln.indexOf(":");
+      if (idx > 0) {
+        div.append(
+          Object.assign(el("span", "hname"), { textContent: ln.slice(0, idx + 1) }),
+          Object.assign(el("span", "hval"), { textContent: ln.slice(idx + 1) }),
+        );
+      } else { div.textContent = ln; }
+    }
+    wrap.appendChild(div);
+  });
+  return wrap;
+}
+
 function renderSip() {
   const box = $("#sip-console");
+  const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
   box.innerHTML = "";
-  const log = sipLog[detailAbonado] || [];
-  for (const e of log) {
-    const line = el("div", "sipline " + e.dir);
+  const log = sipAll.filter((r) => sipRelevant(r, detailAbonado) && sipMatchesFilter(r));
+  const cnt = $("#sip-count");
+  if (cnt) cnt.textContent = log.length;
+  if (!log.length) { box.innerHTML = '<div class="empty">Sin mensajes SIP' + (sipFilterText || sipFilterDir !== "all" ? " (filtro activo)" : " todavía") + '</div>'; return; }
+  for (const r of log) {
+    const msg = el("div", "sipmsg");
+    if (sipOpen.has(r.id)) msg.classList.add("open");
+    const line = el("div", "sipline");
+    const dir = el("span", "dir-chip " + r.dir, r.dir === "tx" ? "↑" : "↓");
+    const badge = el("span", "badge-sip " + sipBadgeClass(r), r.kind === "resp" ? r.method : r.method);
     line.append(
-      Object.assign(el("span", "t", e.t), {}),
-      Object.assign(el("span", "d", (e.dir === "tx" ? "→ " : "← ") + e.summary), {}),
+      dir,
+      Object.assign(el("span", "t"), { textContent: r.t }),
+      badge,
+      Object.assign(el("span", "sip-detail"), { textContent: r.detail, title: r.detail }),
+      Object.assign(el("span", "sip-cid"), { textContent: r.callid ? r.callid.slice(0, 10) + "…" : "" }),
     );
-    const raw = el("div", "sipraw", e.raw);
-    line.onclick = () => line.classList.toggle("open");
-    box.append(line, raw);
+    const caret = el("span", "sip-caret", "▶");
+    line.appendChild(caret);
+    const raw = renderRaw(r.raw);
+    line.onclick = () => {
+      if (sipOpen.has(r.id)) sipOpen.delete(r.id); else sipOpen.add(r.id);
+      msg.classList.toggle("open");
+    };
+    msg.append(line, raw);
+    box.appendChild(msg);
   }
-  box.scrollTop = box.scrollHeight;
+  if (sipAutoscroll && atBottom) box.scrollTop = box.scrollHeight;
 }
 
 function renderRtp() {
@@ -181,11 +272,7 @@ function handleEvent(e) {
       renderAbonados();
       break;
     case "sip": {
-      const aid = e.call_id ? sipByCallId[e.call_id] : null;
-      const rec = { dir: e.direction, summary: e.summary, raw: e.raw, t: now() };
-      // Atribuir a un abonado si conocemos el call_id; si no, a todos (best-effort).
-      if (aid != null) pushSip(aid, rec);
-      else for (const a of abonados) pushSip(a.id, rec);
+      pushSip(parseSip(e));
       renderSip();
       break;
     }
@@ -212,10 +299,22 @@ function handleEvent(e) {
   }
 }
 
-function pushSip(aid, rec) {
-  const arr = (sipLog[aid] = sipLog[aid] || []);
-  arr.push(rec);
-  if (arr.length > MAX_SIP) arr.shift();
+function pushSip(rec) {
+  sipAll.push(rec);
+  if (sipAll.length > MAX_SIP) { const old = sipAll.shift(); sipOpen.delete(old.id); }
+}
+
+// Un mensaje es relevante a un abonado si su línea aparece en los URIs
+// (From/To/Contact) o si su Call-ID está mapeado a ese abonado (llamada activa).
+function sipRelevant(r, abId) {
+  const ab = abonados.find((a) => String(a.id) === String(abId));
+  if (!ab) return false;
+  if (r.callid && String(sipByCallId[r.callid]) === String(abId)) return true;
+  const line = (ab.line_number || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  if (line && new RegExp("[:<]" + line + "@").test(r.raw)) return true;
+  const user = (ab.auth_user || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  if (user && new RegExp("[:<\"]" + user + "@").test(r.raw)) return true;
+  return false;
 }
 
 // ---------------- Modal alta/edición ----------------
@@ -257,7 +356,22 @@ $("#btn-call").onclick = () => api("POST", "/api/calls", { from_id: Number($("#c
 $("#btn-hangup-all").onclick = () => api("POST", "/api/calls/hangup_all");
 $("#detail-select").onchange = (e) => { detailAbonado = e.target.value; renderDetail(); };
 
+// --- Toolbar de señalización ---
+$("#sip-search").oninput = (e) => { sipFilterText = e.target.value.trim().toLowerCase(); renderSip(); };
+$("#sip-dir-filter").onclick = (e) => {
+  const b = e.target.closest("button[data-dir]"); if (!b) return;
+  sipFilterDir = b.dataset.dir;
+  for (const btn of e.currentTarget.querySelectorAll("button")) btn.classList.toggle("active", btn === b);
+  renderSip();
+};
+$("#sip-autoscroll").onchange = (e) => { sipAutoscroll = e.target.checked; if (sipAutoscroll) { const box = $("#sip-console"); box.scrollTop = box.scrollHeight; } };
+$("#sip-clear").onclick = () => { sipAll.length = 0; sipOpen.clear(); renderSip(); };
+
 // ---------------- Init ----------------
-loadAbonados();
-connectWs();
+// Cargar abonados ANTES de conectar el WS para que el replay de señalización
+// (que llega apenas conecta) pueda atribuirse correctamente.
+(async () => {
+  await loadAbonados();
+  connectWs();
+})();
 setInterval(() => { renderCalls(); }, 2000);

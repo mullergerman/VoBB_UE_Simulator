@@ -8,7 +8,8 @@ por WebSocket.
 import asyncio
 import queue
 import threading
-from typing import Any, Dict, List, Optional
+from collections import deque
+from typing import Any, Deque, Dict, List, Optional
 
 
 class EventBus:
@@ -18,10 +19,14 @@ class EventBus:
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._lock = threading.Lock()
         self._pump_task: Optional[asyncio.Task] = None
+        # Historial reciente de señalización SIP para clientes que conectan tarde.
+        self.recent_sip: Deque[Dict[str, Any]] = deque(maxlen=200)
 
     # ---- lado productor (threads de pjsua2, síncrono) ----
     def emit(self, type_: str, **data: Any) -> None:
         evt = {"type": type_, **data}
+        if type_ == "sip":
+            self.recent_sip.append(evt)
         self._q.put(evt)
 
     # ---- lado consumidor (asyncio / FastAPI) ----

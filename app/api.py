@@ -122,8 +122,12 @@ async def ws_events(ws: WebSocket):
     await ws.accept()
     q = bus.subscribe()
     try:
-        # Snapshot inicial del estado del motor.
+        # Snapshot inicial del estado del motor (registros + llamadas activas).
         await ws.send_text(json.dumps({"type": "status", **manager.status()}))
+        # Replay del historial reciente de señalización SIP (para ver el flujo
+        # aunque hayas abierto la web después de que ocurrió).
+        for evt in list(bus.recent_sip):
+            await ws.send_text(json.dumps({**evt, "replay": True}, default=str))
         while True:
             evt = await q.get()
             await ws.send_text(json.dumps(evt, default=str))

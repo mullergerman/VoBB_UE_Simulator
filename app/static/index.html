@@ -60,15 +60,35 @@
     <section class="panel">
       <div class="panel-head">
         <h2>Detalle en vivo</h2>
-        <select id="detail-select"></select>
+        <div class="head-right">
+          <span class="field-label">Abonado</span>
+          <select id="detail-select"></select>
+        </div>
       </div>
       <div class="detail-grid">
-        <div class="detail-col">
-          <h3>Señalización SIP</h3>
+        <!-- Señalización SIP -->
+        <div class="detail-col sig-col">
+          <div class="sig-toolbar">
+            <div class="sig-title">
+              <span class="ico">⇅</span> Señalización SIP
+              <span id="sip-count" class="count-pill">0</span>
+            </div>
+            <div class="sig-controls">
+              <input id="sip-search" class="sig-search" type="text" placeholder="Filtrar (método, Call-ID, texto…)" />
+              <div class="seg" id="sip-dir-filter">
+                <button data-dir="all" class="active">Todos</button>
+                <button data-dir="tx">TX ↑</button>
+                <button data-dir="rx">RX ↓</button>
+              </div>
+              <label class="toggle"><input type="checkbox" id="sip-autoscroll" checked /> Auto-scroll</label>
+              <button id="sip-clear" class="small">Limpiar</button>
+            </div>
+          </div>
           <div id="sip-console" class="console"></div>
         </div>
+        <!-- Estadísticas RTP -->
         <div class="detail-col">
-          <h3>Estadísticas RTP</h3>
+          <h3><span class="ico">◉</span> Estadísticas RTP</h3>
           <div id="rtp-stats" class="rtp"></div>
         </div>
       </div>
