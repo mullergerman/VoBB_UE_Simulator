@@ -163,9 +163,10 @@
           <label>Password (plano)<input name="auth_password" /></label>
           <label class="chk">Habilitado<input name="enabled" type="checkbox" checked /></label>
         </div>
-        <!-- Campos compartidos (se ocultan cuando hay perfil) -->
+        <!-- Campos de config: editables si "Personalizado", heredados (deshabilitados) si hay perfil -->
         <div id="ab-shared">
           <div class="shared-sep">Parámetros de red / comportamiento</div>
+          <p class="hint" id="ab-shared-note"></p>
           <div class="form-grid">
             <label>Dominio<input name="domain" /></label>
             <label>P-CSCF addr<input name="pcscf_addr" /></label>

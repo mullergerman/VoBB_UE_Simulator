@@ -409,38 +409,59 @@ function sipRelevant(r, abId) {
 }
 
 // ---------------- Modal ABONADO ----------------
+const USER_FIELDS = ["display_name", "line_number", "auth_user", "auth_password", "enabled"];
+
 function fillProfileSelect() {
   const sel = $("#ab-profile"); sel.innerHTML = "";
   sel.appendChild(Object.assign(el("option", null, "— Personalizado (sin perfil) —"), { value: "" }));
   for (const p of profiles) sel.appendChild(Object.assign(el("option", null, p.name), { value: String(p.id) }));
 }
-// Muestra u oculta los campos compartidos según haya perfil seleccionado.
-function syncSharedVisibility() {
-  const hasProfile = !!$("#ab-profile").value;
-  $("#ab-shared").classList.toggle("hidden", hasProfile);
+function fillShared(src, f) {
+  for (const fld of SHARED_FIELDS) {
+    const inp = f.elements[fld];
+    if (!inp) continue;
+    if (inp.type === "checkbox") inp.checked = !!src[fld];
+    else inp.value = src[fld] == null ? "" : src[fld];
+  }
+}
+// Con perfil: los campos compartidos se ven pero quedan deshabilitados (heredados).
+// Personalizado: se habilitan para editar la config de ese abonado en particular.
+function onProfileChange() {
+  const f = $("#abonado-form");
+  const pid = $("#ab-profile").value;
+  const p = pid ? profileById(pid) : null;
+  if (p) fillShared(p, f);                 // previsualizar los valores heredados
+  for (const inp of $("#ab-shared").querySelectorAll("input,select")) inp.disabled = !!pid;
+  $("#ab-shared").classList.toggle("inherited", !!pid);
+  $("#ab-shared-note").textContent = pid
+    ? "Heredado del perfil. Elegí «Personalizado» para editar la config de este abonado."
+    : "Configuración propia de este abonado.";
 }
 function openModal(a) {
   const f = $("#abonado-form");
   f.reset();
+  for (const inp of f.querySelectorAll("input,select")) inp.disabled = false;
   fillProfileSelect();
   $("#modal-title").textContent = a ? "Editar abonado " + a.line_number : "Nuevo abonado";
   if (a) {
-    for (const k of Object.keys(a)) {
-      const inp = f.elements[k];
-      if (!inp) continue;
+    f.elements.id.value = a.id;
+    for (const k of USER_FIELDS) {
+      const inp = f.elements[k]; if (!inp) continue;
       if (inp.type === "checkbox") inp.checked = !!a[k];
       else inp.value = a[k] == null ? "" : a[k];
     }
+    // Campos de config: mostrar los valores EFECTIVOS (heredados del perfil o propios).
+    fillShared(effective(a), f);
     $("#ab-profile").value = a.profile_id != null ? String(a.profile_id) : "";
   } else if (profiles.length) {
     $("#ab-profile").value = String(profiles[0].id);   // por defecto, primer perfil
   }
-  syncSharedVisibility();
+  onProfileChange();
   $("#modal").classList.remove("hidden");
 }
 function closeModal() { $("#modal").classList.add("hidden"); }
 
-$("#ab-profile").onchange = syncSharedVisibility;
+$("#ab-profile").onchange = onProfileChange;
 
 $("#abonado-form").onsubmit = async (ev) => {
   ev.preventDefault();
