@@ -124,6 +124,13 @@ def update_user(user_id: int, data: UserUpdate, admin: CurrentUser = Depends(req
         if not u:
             raise HTTPException(404, "Usuario no encontrado")
         d = data.model_dump(exclude_unset=True)
+        # No permitir quitar el rol admin ni deshabilitar al último administrador
+        # (evita quedar sin acceso administrativo / sin botones de gestión).
+        demote = (d.get("is_admin") is False) or (d.get("enabled") is False)
+        if u.is_admin and demote:
+            n_admins = len(s.exec(select(User).where(User.is_admin == True, User.enabled == True)).all())  # noqa: E712
+            if n_admins <= 1:
+                raise HTTPException(409, "No se puede quitar el rol/deshabilitar al último administrador")
         if "username" in d and d["username"]:
             u.username = d["username"]
         if "display_name" in d:
