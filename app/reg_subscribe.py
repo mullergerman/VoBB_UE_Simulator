@@ -144,6 +144,7 @@ class RegEventSubscriber:
             self._running = True
             self._rx_thread = threading.Thread(target=self._rx_loop, daemon=True)
             self._rx_thread.start()
+            print(f"[reg-event] subscriber escuchando en UDP {s.getsockname()}", flush=True)
             bus.emit("log", level="info",
                      msg=f"reg-event subscriber en UDP :{self._port}")
         except Exception as e:  # pragma: no cover
@@ -177,6 +178,8 @@ class RegEventSubscriber:
             sub.local_ip = self._local_ip_for(sub.pcscf_addr)
             sub.local_port = self._port
             self._subs[abonado.id] = sub
+        print(f"[reg-event] ensure {sub.line}: local {sub.local_ip}:{sub.local_port} "
+              f"-> P-CSCF {sub.pcscf_addr}:{sub.pcscf_port} ({sub.transport})", flush=True)
         self._send_subscribe(sub)
 
     def stop_for(self, abonado_id: int) -> None:
@@ -232,11 +235,16 @@ class RegEventSubscriber:
     def _send(self, raw: str, dst) -> None:
         if self._sock is None:
             return
+        data = raw.encode("utf-8")
         try:
-            self._sock.sendto(raw.encode("utf-8"), dst)
+            n = self._sock.sendto(data, dst)
+            src = self._sock.getsockname()
         except Exception as e:  # pragma: no cover
-            bus.emit("log", level="warn", msg=f"reg-event TX error: {e}")
+            print(f"[reg-event] TX ERROR -> {dst}: {e}", flush=True)
+            bus.emit("log", level="warn", msg=f"reg-event TX error a {dst}: {e}")
             return
+        first = raw.split("\r\n", 1)[0]
+        print(f"[reg-event] TX {n}/{len(data)}B {src} -> {dst}  | {first}", flush=True)
         self._emit(raw, "tx")
 
     def _emit(self, raw: str, direction: str) -> None:
