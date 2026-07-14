@@ -4,148 +4,178 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>VoBB UE Simulator</title>
-  <link rel="stylesheet" href="/styles.css?v=2" />
+  <link rel="stylesheet" href="/styles.css?v=3" />
 </head>
 <body>
   <!-- ===== Pantalla de login ===== -->
   <div id="login-screen" class="login-screen hidden">
     <form id="login-form" class="login-box">
-      <h1>VoBB <span>UE Simulator</span></h1>
+      <div class="login-brand">VoBB <span>UE Simulator</span></div>
       <p class="login-sub">Iniciá sesión para continuar</p>
       <label>Usuario<input name="username" autocomplete="username" required autofocus /></label>
       <label>Contraseña<input name="password" type="password" autocomplete="current-password" required /></label>
       <div id="login-error" class="login-error hidden"></div>
-      <button type="submit" class="primary">Ingresar</button>
+      <button type="submit" class="primary block">Ingresar</button>
     </form>
   </div>
 
-  <!-- ===== App ===== -->
-  <div id="app" class="hidden">
-  <header>
-    <h1>VoBB <span>UE Simulator</span></h1>
-    <div class="engine">
-      <span id="ws-dot" class="dot"></span>
-      <span id="engine-status">conectando…</span>
-      <span id="mode-badge" class="badge"></span>
-      <span class="sep">|</span>
-      <span id="current-user" class="user-chip"></span>
-      <button id="btn-logout" class="small">Salir</button>
-    </div>
-  </header>
-
-  <main>
-    <!-- ================= Usuarios (solo admin) ================= -->
-    <section class="panel" id="users-panel" hidden>
-      <div class="panel-head">
-        <h2>Usuarios</h2>
-        <button id="btn-new-user" class="primary">+ Nuevo usuario</button>
-      </div>
-      <table id="users-table">
-        <thead>
-          <tr>
-            <th>Usuario</th><th>Nombre</th><th>Rol</th><th>Permisos</th><th>Numeración</th><th>Estado</th><th>Acciones</th>
-          </tr>
-        </thead>
-        <tbody id="users-body"></tbody>
-      </table>
-    </section>
-
-    <!-- ================= Perfiles ================= -->
-    <section class="panel">
-      <div class="panel-head">
-        <h2>Perfiles</h2>
-        <button id="btn-new-profile" class="primary">+ Nuevo perfil</button>
-      </div>
-      <table id="profiles-table">
-        <thead>
-          <tr>
-            <th>Nombre</th><th>Dominio</th><th>P-CSCF</th><th>Realm</th>
-            <th>Registrar-URI</th><th>Codecs</th><th>Alert</th><th>Eco</th><th>Abonados</th><th>Acciones</th>
-          </tr>
-        </thead>
-        <tbody id="profiles-body"></tbody>
-      </table>
-    </section>
-
-    <!-- ================= Abonados ================= -->
-    <section class="panel">
-      <div class="panel-head">
-        <h2>Abonados</h2>
-        <button id="btn-new" class="primary">+ Nuevo abonado</button>
-      </div>
-      <table id="abonados-table">
-        <thead>
-          <tr>
-            <th>Reg</th><th>Línea</th><th>Perfil</th><th>Dominio</th><th>P-CSCF</th>
-            <th>Usuario</th><th>Password</th><th>Alert</th><th>Eco</th><th>Acciones</th>
-          </tr>
-        </thead>
-        <tbody id="abonados-body"></tbody>
-      </table>
-    </section>
-
-    <!-- ================= Control de llamadas ================= -->
-    <section class="panel">
-      <div class="panel-head"><h2>Control de llamadas</h2></div>
-      <div class="call-controls">
-        <label>Origen
-          <select id="call-from"></select>
-        </label>
-        <span class="arrow">→</span>
-        <label>Destino
-          <select id="call-to"></select>
-        </label>
-        <button id="btn-call" class="primary">Llamar</button>
-        <button id="btn-hangup-all" class="danger">Colgar todas</button>
-      </div>
-      <table id="calls-table">
-        <thead>
-          <tr><th>Estado</th><th>Línea</th><th>Remoto</th><th>Call-ID</th><th>Últ. código</th><th></th></tr>
-        </thead>
-        <tbody id="calls-body"></tbody>
-      </table>
-    </section>
-
-    <!-- ================= Detalle por abonado ================= -->
-    <section class="panel">
-      <div class="panel-head">
-        <h2>Detalle en vivo</h2>
-        <div class="head-right">
-          <span class="field-label">Abonado</span>
-          <select id="detail-select"></select>
+  <!-- ===== App shell ===== -->
+  <div id="app" class="app hidden">
+    <!-- Sidebar -->
+    <aside id="sidebar" class="sidebar">
+      <div class="brand"><span class="brand-mark">V</span><span class="brand-txt">VoBB <b>UE Sim</b></span></div>
+      <nav id="nav" class="nav">
+        <a class="nav-item active" data-view="abonados" id="nav-abonados">
+          <svg viewBox="0 0 24 24" class="ico"><rect x="4" y="3" width="16" height="18" rx="2"/><line x1="9" y1="7" x2="15" y2="7"/><line x1="9" y1="11" x2="15" y2="11"/><line x1="9" y1="15" x2="13" y2="15"/></svg>
+          <span>Abonados</span>
+        </a>
+        <a class="nav-item" data-view="monitor" id="nav-monitor">
+          <svg viewBox="0 0 24 24" class="ico"><polyline points="3,13 8,13 11,5 14,19 17,11 21,11"/></svg>
+          <span>Monitor</span>
+        </a>
+        <a class="nav-item" data-view="perfiles" id="nav-perfiles">
+          <svg viewBox="0 0 24 24" class="ico"><rect x="4" y="4" width="16" height="6" rx="1.5"/><rect x="4" y="14" width="16" height="6" rx="1.5"/></svg>
+          <span>Perfiles</span>
+        </a>
+        <a class="nav-item" data-view="usuarios" id="nav-usuarios">
+          <svg viewBox="0 0 24 24" class="ico"><circle cx="12" cy="8" r="3.5"/><path d="M5 20c0-3.5 3-6 7-6s7 2.5 7 6"/></svg>
+          <span>Usuarios</span>
+        </a>
+      </nav>
+      <div class="sidebar-foot">
+        <div class="engine-line"><span id="ws-dot" class="dot"></span><span id="engine-status">conectando…</span></div>
+        <div id="mode-badge" class="badge"></div>
+        <div class="user-row">
+          <span id="current-user" class="user-chip"></span>
+          <button id="btn-logout" class="icon-btn" title="Cerrar sesión">⏻</button>
         </div>
       </div>
-      <div class="detail-grid">
-        <!-- Señalización SIP -->
-        <div class="detail-col sig-col">
-          <div class="sig-toolbar">
-            <div class="sig-title">
-              <span class="ico">⇅</span> Señalización SIP
-              <span id="sip-count" class="count-pill">0</span>
-            </div>
-            <div class="sig-controls">
-              <input id="sip-search" class="sig-search" type="text" placeholder="Filtrar (método, Call-ID, texto…)" />
-              <div class="seg" id="sip-dir-filter">
-                <button data-dir="all" class="active">Todos</button>
-                <button data-dir="tx">TX ↑</button>
-                <button data-dir="rx">RX ↓</button>
-              </div>
-              <label class="toggle"><input type="checkbox" id="sip-autoscroll" checked /> Auto-scroll</label>
-              <button id="sip-clear" class="small">Limpiar</button>
-            </div>
+    </aside>
+    <div id="scrim" class="scrim"></div>
+
+    <!-- Contenido principal -->
+    <main class="main">
+      <button id="btn-menu" class="menu-btn" title="Menú">☰</button>
+
+      <!-- ===== Vista: Abonados ===== -->
+      <section id="view-abonados" class="view">
+        <div class="view-head">
+          <h1>Abonados</h1>
+          <button id="btn-new" class="primary">＋ Nuevo abonado</button>
+        </div>
+
+        <div class="stats">
+          <div class="tile"><div class="v" id="stat-total">0</div><div class="l">Abonados</div></div>
+          <div class="tile"><div class="v ok" id="stat-reg">0</div><div class="l">Registrados</div></div>
+          <div class="tile"><div class="v" id="stat-calls">0</div><div class="l">Llamadas activas</div></div>
+          <div class="tile"><div class="v" id="stat-engine">—</div><div class="l">Motor SIP</div></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><h2>Control de llamadas</h2></div>
+          <div class="call-controls">
+            <label>Origen<select id="call-from"></select></label>
+            <span class="arrow">→</span>
+            <label>Destino<select id="call-to"></select></label>
+            <button id="btn-call" class="primary">Llamar</button>
+            <button id="btn-hangup-all" class="danger">Colgar todas</button>
           </div>
-          <div id="sip-console" class="console"></div>
+          <div class="table-wrap">
+            <table id="calls-table">
+              <thead><tr><th>Estado</th><th>Línea</th><th>Remoto</th><th>Call-ID</th><th>Últ. código</th><th></th></tr></thead>
+              <tbody id="calls-body"></tbody>
+            </table>
+          </div>
         </div>
-        <!-- Estadísticas RTP -->
-        <div class="detail-col">
-          <h3><span class="ico">◉</span> Estadísticas RTP</h3>
-          <div id="rtp-stats" class="rtp"></div>
-        </div>
-      </div>
-    </section>
-  </main>
 
-  <!-- Modal de alta/edición de ABONADO -->
+        <div class="panel">
+          <div class="panel-head"><h2>Lista de abonados</h2></div>
+          <div class="table-wrap">
+            <table id="abonados-table">
+              <thead>
+                <tr>
+                  <th>Reg</th><th>Línea</th><th>Perfil</th><th>Dominio</th><th>P-CSCF</th>
+                  <th>Usuario</th><th>Password</th><th>Alert</th><th>Eco</th><th class="col-actions">Acciones</th>
+                </tr>
+              </thead>
+              <tbody id="abonados-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== Vista: Monitor ===== -->
+      <section id="view-monitor" class="view hidden">
+        <div class="view-head">
+          <h1>Monitor en vivo</h1>
+          <div class="head-right"><span class="field-label">Abonado</span><select id="detail-select"></select></div>
+        </div>
+        <div class="monitor-grid">
+          <div class="panel sig-col">
+            <div class="sig-toolbar">
+              <div class="sig-title"><span class="ico-t">⇅</span> Señalización SIP <span id="sip-count" class="count-pill">0</span></div>
+              <div class="sig-controls">
+                <input id="sip-search" class="sig-search" type="text" placeholder="Filtrar (método, Call-ID, texto…)" />
+                <div class="seg" id="sip-dir-filter">
+                  <button data-dir="all" class="active">Todos</button>
+                  <button data-dir="tx">TX ↑</button>
+                  <button data-dir="rx">RX ↓</button>
+                </div>
+                <label class="toggle"><input type="checkbox" id="sip-autoscroll" checked /> Auto-scroll</label>
+                <button id="sip-clear" class="small">Limpiar</button>
+              </div>
+            </div>
+            <div id="sip-console" class="console"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><h2>Estadísticas RTP</h2></div>
+            <div id="rtp-stats" class="rtp"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== Vista: Perfiles ===== -->
+      <section id="view-perfiles" class="view hidden">
+        <div class="view-head">
+          <h1>Perfiles</h1>
+          <button id="btn-new-profile" class="primary">＋ Nuevo perfil</button>
+        </div>
+        <div class="panel">
+          <div class="table-wrap">
+            <table id="profiles-table">
+              <thead>
+                <tr>
+                  <th>Nombre</th><th>Dominio</th><th>P-CSCF</th><th>Realm</th>
+                  <th>Registrar-URI</th><th>Codecs</th><th>Alert</th><th>Eco</th><th>Abonados</th><th class="col-actions">Acciones</th>
+                </tr>
+              </thead>
+              <tbody id="profiles-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== Vista: Usuarios ===== -->
+      <section id="view-usuarios" class="view hidden">
+        <div class="view-head">
+          <h1>Usuarios</h1>
+          <button id="btn-new-user" class="primary">＋ Nuevo usuario</button>
+        </div>
+        <div class="panel">
+          <div class="table-wrap">
+            <table id="users-table">
+              <thead>
+                <tr><th>Usuario</th><th>Nombre</th><th>Rol</th><th>Permisos</th><th>Numeración</th><th>Estado</th><th class="col-actions">Acciones</th></tr>
+              </thead>
+              <tbody id="users-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- ===== Modal ABONADO ===== -->
   <div id="modal" class="modal hidden">
     <div class="modal-box">
       <h3 id="modal-title">Nuevo abonado</h3>
@@ -156,14 +186,12 @@
         </label>
         <p class="hint">Con un perfil, los campos de red/comportamiento se heredan; solo definís los datos propios del abonado.</p>
         <div class="form-grid">
-          <!-- Campos propios del abonado -->
           <label>Display name<input name="display_name" /></label>
           <label>Línea (número / IMPU)<input name="line_number" required /></label>
           <label>Auth user (IMPI)<input name="auth_user" /></label>
           <label>Password (plano)<input name="auth_password" /></label>
           <label class="chk">Habilitado<input name="enabled" type="checkbox" checked /></label>
         </div>
-        <!-- Campos de config: editables si "Personalizado", heredados (deshabilitados) si hay perfil -->
         <div id="ab-shared">
           <div class="shared-sep">Parámetros de red / comportamiento</div>
           <p class="hint" id="ab-shared-note"></p>
@@ -175,7 +203,7 @@
               <select name="transport"><option>udp</option><option>tcp</option></select>
             </label>
             <label>Realm (vacío = cualquiera)<input name="auth_realm" placeholder="* (cualquier realm)" /></label>
-            <label>Registrar/Request-URI (vacío = dominio)<input name="registrar_uri" placeholder="ej. sip:100.103.6.12 (IP P-CSCF)" /></label>
+            <label>Registrar/Request-URI (vacío = dominio)<input name="registrar_uri" placeholder="ej. sip:100.103.6.12" /></label>
             <label>Codecs<input name="codec_pref" value="PCMU,PCMA" /></label>
             <label>Alerting (s)<input name="alerting_delay_s" type="number" value="3" /></label>
             <label>Reg expires<input name="reg_expires" type="number" value="600" /></label>
@@ -190,7 +218,7 @@
     </div>
   </div>
 
-  <!-- Modal de alta/edición de PERFIL -->
+  <!-- ===== Modal PERFIL ===== -->
   <div id="profile-modal" class="modal hidden">
     <div class="modal-box">
       <h3 id="profile-modal-title">Nuevo perfil</h3>
@@ -205,7 +233,7 @@
             <select name="transport"><option>udp</option><option>tcp</option></select>
           </label>
           <label>Realm (vacío = cualquiera)<input name="auth_realm" placeholder="* (cualquier realm)" /></label>
-          <label>Registrar/Request-URI (vacío = dominio)<input name="registrar_uri" placeholder="ej. sip:100.103.6.12 (IP P-CSCF)" /></label>
+          <label>Registrar/Request-URI (vacío = dominio)<input name="registrar_uri" placeholder="ej. sip:100.103.6.12" /></label>
           <label>Codecs<input name="codec_pref" value="PCMU,PCMA" /></label>
           <label>Alerting (s)<input name="alerting_delay_s" type="number" value="3" /></label>
           <label>Reg expires<input name="reg_expires" type="number" value="600" /></label>
@@ -219,7 +247,7 @@
     </div>
   </div>
 
-  <!-- Modal de alta/edición de USUARIO -->
+  <!-- ===== Modal USUARIO ===== -->
   <div id="user-modal" class="modal hidden">
     <div class="modal-box">
       <h3 id="user-modal-title">Nuevo usuario</h3>
@@ -228,7 +256,7 @@
         <div class="form-grid">
           <label>Usuario<input name="username" required /></label>
           <label>Nombre a mostrar<input name="display_name" /></label>
-          <label>Contraseña<input name="password" type="password" placeholder="(dejar vacío = no cambia)" /></label>
+          <label>Contraseña<input name="password" type="password" placeholder="(vacío = no cambia)" /></label>
           <label class="chk">Administrador<input name="is_admin" type="checkbox" /></label>
           <label class="chk">Habilitado<input name="enabled" type="checkbox" checked /></label>
         </div>
@@ -248,8 +276,7 @@
       </form>
     </div>
   </div>
-  </div><!-- /#app -->
 
-  <script src="/app.js?v=2"></script>
+  <script src="/app.js?v=3"></script>
 </body>
 </html>

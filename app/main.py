@@ -21,13 +21,16 @@ _STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 
 @app.middleware("http")
 async def _no_cache_static(request: Request, call_next):
-    """Fuerza revalidación de los estáticos (index.html/app.js/styles.css) para
-    que tras un deploy el navegador tome siempre la última versión y no una
-    cacheada. Con ETag/Last-Modified de StaticFiles, un archivo sin cambios
-    responde 304 (barato) y uno cambiado, 200."""
+    """Control de caché de los estáticos para que tras un deploy el navegador
+    tome siempre la última versión:
+    - index.html (`/`): `no-store` => nunca se cachea; siempre referencia el
+      `?v=N` actual de app.js/styles.css. Rompe cualquier caché vieja.
+    - .js/.css: `no-cache` => revalidan con ETag (304 si no cambió)."""
     resp = await call_next(request)
     path = request.url.path
-    if path == "/" or path.endswith((".js", ".css", ".html")):
+    if path == "/" or path.endswith(".html"):
+        resp.headers["Cache-Control"] = "no-store"
+    elif path.endswith((".js", ".css")):
         resp.headers["Cache-Control"] = "no-cache"
     return resp
 

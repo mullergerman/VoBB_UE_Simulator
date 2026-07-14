@@ -55,22 +55,47 @@ async function loadAll() {
 }
 async function loadAbonados() { await loadAll(); }
 
-// Muestra/oculta paneles y botones según permisos del usuario.
+// Muestra/oculta navegación y botones según permisos del usuario.
 function applyGating() {
   const admin = currentUser && currentUser.is_admin;
-  $("#users-panel").hidden = !admin;
+  // Navegación: la vista Usuarios es solo para admin.
+  $("#nav-usuarios").style.display = admin ? "" : "none";
+  // Botones de alta gateados por permiso.
   $("#btn-new-profile").style.display = can("manage_profiles") ? "" : "none";
   $("#btn-new").style.display = can("edit_abonados") ? "" : "none";
-  // Controles de llamada
   const callable = can("control_calls");
   for (const id of ["#btn-call", "#btn-hangup-all"]) $(id).style.display = callable ? "" : "none";
-  // Chip de usuario
+  // Chip de usuario en la sidebar.
   const uc = $("#current-user");
   if (currentUser) {
     uc.textContent = currentUser.display_name || currentUser.username;
-    const role = el("span", "role", admin ? "admin" : "usuario");
-    uc.appendChild(role);
+    uc.appendChild(el("span", "role", admin ? "admin" : "usuario"));
   }
+  // Si un no-admin estaba en la vista Usuarios, mandarlo a Abonados.
+  if (!admin && currentView === "usuarios") showView("abonados");
+}
+
+// ---------------- Router de vistas ----------------
+const VIEWS = ["abonados", "monitor", "perfiles", "usuarios"];
+let currentView = "abonados";
+function showView(name) {
+  if (!VIEWS.includes(name)) name = "abonados";
+  currentView = name;
+  for (const v of VIEWS) {
+    $("#view-" + v).classList.toggle("hidden", v !== name);
+    $("#nav-" + v).classList.toggle("active", v === name);
+  }
+  if (location.hash !== "#/" + name) history.replaceState(null, "", "#/" + name);
+  $("#app").classList.remove("nav-open");   // cerrar sidebar en móvil
+}
+
+// ---------------- Stat tiles ----------------
+function updateStats() {
+  const reg = abonados.filter((a) => (regState[a.id] || {}).active).length;
+  const active = Object.values(calls).filter((c) => c.state && c.state !== "DISCONNECTED").length;
+  $("#stat-total").textContent = abonados.length;
+  $("#stat-reg").textContent = reg;
+  $("#stat-calls").textContent = active;
 }
 
 const profileById = (id) => profiles.find((p) => String(p.id) === String(id));
@@ -109,20 +134,24 @@ function renderAbonados() {
     tr.appendChild(el("td", null, e.alerting_delay_s + "s"));
     tr.appendChild(el("td", null, e.echo_enabled ? "sí" : "no"));
 
-    const act = el("td");
+    const act = el("td", "col-actions");
+    const grp = el("div", "row-actions");
     if (can("edit_abonados") || can("control_calls")) {
-      const bReg = el("button", "small", rs.active ? "Unreg" : "Reg");
+      const bReg = el("button", "small" + (rs.active ? " danger" : ""), rs.active ? "Unreg" : "Reg");
       bReg.onclick = () => api("POST", `/api/abonados/${a.id}/${rs.active ? "unregister" : "register"}`);
-      act.appendChild(bReg);
+      grp.appendChild(bReg);
     }
     if (can("edit_abonados")) {
       const bEdit = el("button", "small", "Editar"); bEdit.onclick = () => openModal(a);
-      const bDel = el("button", "small danger", "✕"); bDel.onclick = () => { if (confirm("¿Borrar abonado " + a.line_number + "?")) api("DELETE", `/api/abonados/${a.id}`).then(loadAll); };
-      act.append(bEdit, bDel);
+      const bDel = el("button", "small danger", "Eliminar"); bDel.onclick = () => { if (confirm("¿Borrar abonado " + a.line_number + "?")) api("DELETE", `/api/abonados/${a.id}`).then(loadAll); };
+      grp.append(bEdit, bDel);
     }
+    if (!grp.children.length) grp.appendChild(el("span", "muted", "—"));
+    act.appendChild(grp);
     tr.appendChild(act);
     tb.appendChild(tr);
   }
+  updateStats();
 }
 
 function renderProfiles() {
@@ -141,17 +170,17 @@ function renderProfiles() {
     tr.appendChild(el("td", null, p.alerting_delay_s + "s"));
     tr.appendChild(el("td", null, p.echo_enabled ? "sí" : "no"));
     tr.appendChild(el("td", null, String(used)));
-    const act = el("td");
+    const act = el("td", "col-actions"); const grp = el("div", "row-actions");
     if (can("manage_profiles")) {
       const bEdit = el("button", "small", "Editar"); bEdit.onclick = () => openProfileModal(p);
-      const bDel = el("button", "small danger", "✕");
+      const bDel = el("button", "small danger", "Eliminar");
       bDel.onclick = () => {
         const msg = used ? `El perfil "${p.name}" lo usan ${used} abonado(s). Se desvincularán (conservando esta config). ¿Continuar?` : `¿Borrar perfil "${p.name}"?`;
         if (confirm(msg)) api("DELETE", `/api/profiles/${p.id}`).then(loadAll);
       };
-      act.append(bEdit, bDel);
-    }
-    tr.appendChild(act);
+      grp.append(bEdit, bDel);
+    } else grp.appendChild(el("span", "muted", "—"));
+    act.appendChild(grp); tr.appendChild(act);
     tb.appendChild(tr);
   }
 }
@@ -199,6 +228,7 @@ function renderCalls() {
     act.appendChild(bh); tr.appendChild(act);
     tb.appendChild(tr);
   }
+  updateStats();
 }
 
 // ---------------- Detalle SIP + RTP ----------------
@@ -347,6 +377,8 @@ function handleEvent(e) {
     case "status":
       $("#engine-status").textContent = e.available ? "motor SIP activo" : (e.reason || "motor SIP inactivo");
       $("#mode-badge").textContent = "modo: " + (e.mode || "?");
+      $("#stat-engine").textContent = e.available ? "activo" : "inactivo";
+      $("#stat-engine").classList.toggle("ok", !!e.available);
       if (e.registrations) {
         for (const [aid, st] of Object.entries(e.registrations)) regState[aid] = st;
         renderAbonados();
@@ -540,12 +572,11 @@ function renderUsers() {
     tr.appendChild(permTd);
     tr.appendChild(el("td", "mono", (u.numbers || []).map((n) => n.end && n.end !== n.start ? `${n.start}-${n.end}` : n.start).join(", ") || "—"));
     tr.appendChild(el("td", null, u.enabled ? "activo" : "deshabilitado"));
-    const act = el("td");
+    const act = el("td", "col-actions"); const grp = el("div", "row-actions");
     const bEdit = el("button", "small", "Editar"); bEdit.onclick = () => openUserModal(u);
-    const bDel = el("button", "small danger", "✕");
+    const bDel = el("button", "small danger", "Eliminar");
     bDel.onclick = () => { if (confirm(`¿Borrar usuario "${u.username}"?`)) api("DELETE", `/api/users/${u.id}`).then(loadAll); };
-    act.append(bEdit, bDel);
-    tr.appendChild(act);
+    grp.append(bEdit, bDel); act.appendChild(grp); tr.appendChild(act);
     tb.appendChild(tr);
   }
 }
@@ -676,8 +707,26 @@ $("#sip-dir-filter").onclick = (e) => {
 $("#sip-autoscroll").onchange = (e) => { sipAutoscroll = e.target.checked; if (sipAutoscroll) { const box = $("#sip-console"); box.scrollTop = box.scrollHeight; } };
 $("#sip-clear").onclick = () => { sipAll.length = 0; sipOpen.clear(); renderSip(); };
 
+// --- Navegación (router de vistas) ---
+$("#nav").addEventListener("click", (e) => {
+  const item = e.target.closest(".nav-item[data-view]");
+  if (!item) return;
+  showView(item.dataset.view);
+});
+$("#btn-menu").onclick = () => $("#app").classList.toggle("nav-open");
+$("#scrim").onclick = () => $("#app").classList.remove("nav-open");
+window.addEventListener("hashchange", () => {
+  const name = (location.hash.match(/^#\/(\w+)/) || [])[1];
+  if (name && VIEWS.includes(name) && name !== currentView) showView(name);
+});
+
 // ---------------- Init ----------------
 // bootstrap() valida el token (o muestra login), y recién ahí carga datos y
 // conecta el WS (para que el replay de señalización se atribuya correctamente).
+(function initRoute() {
+  if (location.hash.startsWith("#token")) return;   // deep-link token: lo maneja bootstrap
+  const name = (location.hash.match(/^#\/(\w+)/) || [])[1];
+  showView(name && VIEWS.includes(name) ? name : "abonados");
+})();
 bootstrap();
 setInterval(() => { if (currentUser) renderCalls(); }, 2000);
