@@ -111,7 +111,7 @@ button.icon-btn:hover { color: var(--text); background: var(--surface2); border-
 /* ---------- Main / vistas ---------- */
 .main { min-width: 0; padding: 22px 26px 40px; }
 .menu-btn { display: none; margin-bottom: 14px; }
-.view { display: flex; flex-direction: column; gap: 18px; max-width: 1500px; }
+.view { display: flex; flex-direction: column; gap: 18px; width: 100%; }
 .view-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; }
 .view-head h1 { font-size: 22px; letter-spacing: -.3px; }
 .head-right { display: flex; align-items: center; gap: 9px; }

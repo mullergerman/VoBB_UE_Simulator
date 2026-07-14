@@ -476,6 +476,7 @@ function onSharedEdit() {
 function openModal(a) {
   const f = $("#abonado-form");
   f.reset();
+  f.elements.id.value = a ? a.id : "";   // clave: limpiar el id en alta (reset no lo limpia)
   for (const inp of f.querySelectorAll("input,select")) inp.disabled = false;
   fillProfileSelect();
   $("#modal-title").textContent = a ? "Editar abonado " + a.line_number : "Nuevo abonado";
@@ -526,6 +527,7 @@ $("#abonado-form").onsubmit = async (ev) => {
 function openProfileModal(p) {
   const f = $("#profile-form");
   f.reset();
+  f.elements.id.value = p ? p.id : "";   // clave: limpiar el id en alta (reset no lo limpia)
   $("#profile-modal-title").textContent = p ? "Editar perfil: " + p.name : "Nuevo perfil";
   if (p) for (const k of Object.keys(p)) {
     const inp = f.elements[k];
