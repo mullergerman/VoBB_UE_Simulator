@@ -29,6 +29,13 @@ RUN cd /tmp \
         https://github.com/pjsip/pjproject/archive/refs/tags/${PJPROJECT_VERSION}.tar.gz \
     && tar xzf pjproject.tgz \
     && cd pjproject-${PJPROJECT_VERSION} \
+    # Subir límites por defecto de PJSUA: 8 cuentas es muy poco para simular
+    # muchos abonados. config_site.h aplica a toda la compilación.
+    && printf '%s\n' \
+        '#define PJSUA_MAX_ACC 512' \
+        '#define PJSUA_MAX_CALLS 512' \
+        '#define PJMEDIA_CONF_MAX_PORTS 1200' \
+        > pjlib/include/pj/config_site.h \
     && export CFLAGS="-fPIC -O2 -DPJ_HAS_IPV6=1" \
     && ./configure --enable-shared --disable-video --disable-sound \
     && make dep && make \

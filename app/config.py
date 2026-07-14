@@ -28,6 +28,10 @@ SIP_PORT = _int("SIP_PORT", 5060)            # puerto SIP local del endpoint
 SIP_TRANSPORT = os.environ.get("SIP_TRANSPORT", "udp").lower()
 RTP_PORT_START = _int("RTP_PORT_START", 4000)
 PJSUA_LOG_LEVEL = _int("PJSUA_LOG_LEVEL", 4)  # 4+ imprime mensajes SIP crudos
+# Tope de cuentas/llamadas simultáneas. Debe ser <= los límites compilados en
+# el Dockerfile (PJSUA_MAX_ACC/PJSUA_MAX_CALLS=512); dejamos margen.
+MAX_ACCOUNTS = _int("MAX_ACCOUNTS", 500)
+MAX_CALLS = _int("MAX_CALLS", 500)
 
 # En modo local: dirección del registrar embebido (nombre de servicio compose).
 # Se usa sólo para el seed inicial de abonados.

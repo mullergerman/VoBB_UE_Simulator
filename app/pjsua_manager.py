@@ -184,7 +184,7 @@ class PjsuaManager:
         ep_cfg.logConfig.msgLogging = True
         self._log_writer = SipLogWriter()
         ep_cfg.logConfig.writer = self._log_writer
-        ep_cfg.uaConfig.maxCalls = 32
+        ep_cfg.uaConfig.maxCalls = min(config.MAX_CALLS, 512)
         self.ep.libInit(ep_cfg)
 
         # Transporte SIP.
@@ -251,6 +251,14 @@ class PjsuaManager:
         with self._lock:
             if abonado.id in self.accounts:
                 self.remove_account(abonado.id)
+            # Guard: superar PJSUA_MAX_ACC aborta el proceso (assertion de C, no
+            # atrapable). Rechazamos con gracia al llegar al tope.
+            if len(self.accounts) >= config.MAX_ACCOUNTS:
+                msg = f"límite de cuentas SIP alcanzado ({config.MAX_ACCOUNTS})"
+                print(f"[add_account] abonado {abonado.line_number}: {msg}", flush=True)
+                self._reg_state[abonado.id] = {"active": False, "code": 503, "reason": msg, "line": abonado.line_number}
+                bus.emit("register", abonado_id=abonado.id, active=False, code=503, reason=msg, line=abonado.line_number)
+                return
             acc = _Account(abonado, self)
             try:
                 acc.create(self._account_config(abonado))
