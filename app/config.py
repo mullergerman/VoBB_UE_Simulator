@@ -48,6 +48,17 @@ REG_EVENT_SUBSCRIBE = _bool("REG_EVENT_SUBSCRIBE", MODE == "ims")
 REG_EVENT_PORT = _int("REG_EVENT_PORT", 0)
 REG_EVENT_EXPIRES = _int("REG_EVENT_EXPIRES", 600)
 
+# Relay/ALG SIP: un forwarder propio se queda con el puerto que ve el P-CSCF
+# (RELAY_PORT) y pjsua sale a través de él (proxy interno). Así TODO el tráfico
+# del UE —REGISTER, INVITE y el SUBSCRIBE reg-event— comparte un único flow de
+# origen, requisito del P-CSCF (ata el flow a la dupla IP:puerto del REGISTER).
+# Opt-in; apagado por defecto (sin relay, comportamiento idéntico al actual).
+SIP_RELAY = _bool("SIP_RELAY", False)
+RELAY_PORT = _int("RELAY_PORT", 5060)          # puerto externo que ve el P-CSCF
+RELAY_INT_PORT = _int("RELAY_INT_PORT", 5062)  # puerto interno pjsua<->relay
+RELAY_PJSUA_PORT = _int("RELAY_PJSUA_PORT", 5070)  # bind real de pjsua con relay
+RELAY_PUBLIC_ADDR = os.environ.get("RELAY_PUBLIC_ADDR", "")  # Via/Contact (opc.)
+
 # En modo local: dirección del registrar embebido (nombre de servicio compose).
 # Se usa sólo para el seed inicial de abonados.
 LOCAL_REGISTRAR = os.environ.get("LOCAL_REGISTRAR", "127.0.0.1")

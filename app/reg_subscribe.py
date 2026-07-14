@@ -124,16 +124,25 @@ class _Sub:
 class RegEventSubscriber:
     """Gestor de suscripciones reg-event sobre un único socket UDP."""
 
-    def __init__(self) -> None:
+    def __init__(self, relay=None) -> None:
         self._subs: Dict[int, _Sub] = {}
         self._lock = threading.RLock()
         self._sock: Optional[socket.socket] = None
         self._running = False
         self._rx_thread: Optional[threading.Thread] = None
         self._port = 0
+        # Con relay, se envía/recibe por el flow :5060 del relay (mismo origen
+        # que el REGISTER, requisito del P-CSCF). Sin relay, socket propio (queda
+        # como fallback; el P-CSCF lo descarta por puerto de origen).
+        self._relay = relay
 
     # ---- ciclo de vida ----
     def start(self) -> None:
+        if self._relay is not None:
+            self._running = True
+            print("[reg-event] subscriber vía SIP relay (flow :5060)", flush=True)
+            bus.emit("log", level="info", msg="reg-event subscriber vía SIP relay")
+            return
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -165,21 +174,34 @@ class RegEventSubscriber:
                 pass
             self._sock = None
 
+    # Handler que el relay invoca al recibir un mensaje reg-event por EXT.
+    def on_relay_rx(self, raw: str, addr) -> None:
+        try:
+            self._dispatch(raw, addr)
+        except Exception as e:  # pragma: no cover
+            bus.emit("log", level="warn", msg=f"reg-event relay RX error: {e}")
+
     # ---- API pública (llamada desde el manager en onRegState) ----
     def ensure(self, abonado) -> None:
         """Arranca la suscripción del abonado si aún no está activa (idempotente)."""
-        if not self._running or self._sock is None:
+        if not self._running or (self._relay is None and self._sock is None):
             return
         with self._lock:
             existing = self._subs.get(abonado.id)
             if existing and not existing.terminated:
                 return
             sub = _Sub(abonado)
-            sub.local_ip = self._local_ip_for(sub.pcscf_addr)
-            sub.local_port = self._port
+            if self._relay is not None:
+                sub.local_ip = self._relay.public_ip_for(sub.pcscf_addr)
+                sub.local_port = self._relay.public_port
+                self._relay.register_callid(sub.call_id)
+            else:
+                sub.local_ip = self._local_ip_for(sub.pcscf_addr)
+                sub.local_port = self._port
             self._subs[abonado.id] = sub
         print(f"[reg-event] ensure {sub.line}: local {sub.local_ip}:{sub.local_port} "
-              f"-> P-CSCF {sub.pcscf_addr}:{sub.pcscf_port} ({sub.transport})", flush=True)
+              f"-> P-CSCF {sub.pcscf_addr}:{sub.pcscf_port} ({sub.transport})"
+              f"{' [relay]' if self._relay is not None else ''}", flush=True)
         self._send_subscribe(sub)
 
     def stop_for(self, abonado_id: int) -> None:
@@ -193,6 +215,8 @@ class RegEventSubscriber:
             # SUBSCRIBE Expires: 0 para cerrar la suscripción con gracia.
             sub.expires = 0
             self._send_subscribe(sub)
+        if self._relay is not None:
+            self._relay.unregister_callid(sub.call_id)
 
     # ---- envío ----
     def _local_ip_for(self, dst_addr: str) -> str:
@@ -233,6 +257,14 @@ class RegEventSubscriber:
         self._send(raw, (sub.pcscf_addr, sub.pcscf_port))
 
     def _send(self, raw: str, dst) -> None:
+        first = raw.split("\r\n", 1)[0]
+        # Con relay: enviar por el flow :5060 (mismo origen que el REGISTER).
+        if self._relay is not None:
+            ok = self._relay.send_to_pcscf(raw)
+            print(f"[reg-event] TX(relay:5060) {'OK' if ok else 'FAIL'} | {first}", flush=True)
+            if ok:
+                self._emit(raw, "tx")
+            return
         if self._sock is None:
             return
         data = raw.encode("utf-8")
@@ -243,7 +275,6 @@ class RegEventSubscriber:
             print(f"[reg-event] TX ERROR -> {dst}: {e}", flush=True)
             bus.emit("log", level="warn", msg=f"reg-event TX error a {dst}: {e}")
             return
-        first = raw.split("\r\n", 1)[0]
         print(f"[reg-event] TX {n}/{len(data)}B {src} -> {dst}  | {first}", flush=True)
         self._emit(raw, "tx")
 

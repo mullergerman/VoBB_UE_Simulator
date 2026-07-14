@@ -23,6 +23,9 @@ services:
       SIP_PORT: "5060"
       RTP_PORT_START: "4000"
       PJSUA_LOG_LEVEL: "4"
+      # Relay SIP (opt-in). Para probar que registro/llamadas sobreviven al relay
+      # en local: SIP_RELAY=1 docker compose --profile local up -d --build
+      SIP_RELAY: "${SIP_RELAY:-0}"
     ports:
       - "8080:8080"                     # interfaz web
     volumes:
@@ -50,6 +53,10 @@ services:
       RTP_PORT_START: "4000"
       PJSUA_LOG_LEVEL: "4"
       HTTP_PORT: "8080"
+      # Relay SIP: necesario para que el SUBSCRIBE reg-event salga del mismo
+      # flow :5060 del REGISTER (el P-CSCF lo exige). Activar con:
+      #   SIP_RELAY=1 docker compose --profile ims up -d --build
+      SIP_RELAY: "${SIP_RELAY:-0}"
     volumes:
       - vobb-data:/srv/data
 

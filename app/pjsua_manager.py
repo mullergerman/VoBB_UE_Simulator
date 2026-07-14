@@ -172,6 +172,7 @@ class PjsuaManager:
         self._running = False
         self._log_writer = None
         self._reg_subscriber = None   # RegEventSubscriber (solo en modo ims)
+        self._relay = None            # SipRelay (opt-in SIP_RELAY)
         if not PJSUA_AVAILABLE:
             self._disabled_reason = f"pjsua2 no disponible: {_IMPORT_ERROR}"
         elif config.SIP_DISABLED:
@@ -196,9 +197,24 @@ class PjsuaManager:
         ep_cfg.uaConfig.maxCalls = min(config.MAX_CALLS, 512)
         self.ep.libInit(ep_cfg)
 
-        # Transporte SIP.
+        # Relay/ALG SIP (opt-in): se queda con el puerto que ve el P-CSCF; pjsua
+        # bindea otro puerto y sale a través del relay. Arranca ANTES del
+        # transporte para tener el :5060 tomado por el relay.
+        if config.SIP_RELAY:
+            try:
+                from .sip_relay import SipRelay
+                self._relay = SipRelay()
+                self._relay.start()
+            except Exception as e:  # pragma: no cover
+                self._relay = None
+                bus.emit("log", level="warn", msg=f"SIP relay no arrancó: {e}")
+
+        # Transporte SIP. Con relay, pjsua bindea RELAY_PJSUA_PORT (el relay usa
+        # el puerto externo). Sin relay, usa SIP_PORT como siempre.
         tcfg = pj.TransportConfig()
-        tcfg.port = config.SIP_PORT
+        tcfg.port = config.RELAY_PJSUA_PORT if self._relay is not None else config.SIP_PORT
+        if self._relay is not None and config.RELAY_PUBLIC_ADDR:
+            tcfg.publicAddress = config.RELAY_PUBLIC_ADDR
         ttype = pj.PJSIP_TRANSPORT_TCP if config.SIP_TRANSPORT == "tcp" else pj.PJSIP_TRANSPORT_UDP
         self.ep.transportCreate(ttype, tcfg)
 
@@ -225,8 +241,12 @@ class PjsuaManager:
         if config.REG_EVENT_SUBSCRIBE:
             try:
                 from .reg_subscribe import RegEventSubscriber
-                self._reg_subscriber = RegEventSubscriber()
+                self._reg_subscriber = RegEventSubscriber(relay=self._relay)
                 self._reg_subscriber.start()
+                # Con relay, el subscriber envía/recibe por el flow :5060 del
+                # relay (demux por Call-ID), no por un socket propio.
+                if self._relay is not None:
+                    self._relay.set_reg_handler(self._reg_subscriber.on_relay_rx)
             except Exception as e:  # pragma: no cover
                 bus.emit("log", level="warn", msg=f"reg-event init error: {e}")
 
@@ -238,6 +258,12 @@ class PjsuaManager:
             except Exception:
                 pass
             self._reg_subscriber = None
+        if self._relay is not None:
+            try:
+                self._relay.stop()
+            except Exception:
+                pass
+            self._relay = None
         if not self.available or self.ep is None:
             return
         try:
@@ -349,10 +375,16 @@ class PjsuaManager:
             reg_uri = "sip:" + reg_uri
         cfg.regConfig.registrarUri = reg_uri or f"sip:{ab.domain}"
         cfg.regConfig.timeoutSec = ab.reg_expires
-        # P-CSCF como outbound proxy: el REGISTER/INVITE sale hacia él.
-        cfg.sipConfig.proxies.append(
-            f"sip:{ab.pcscf_addr}:{ab.pcscf_port};transport={ab.transport};lr"
-        )
+        # Outbound proxy. Con relay, pjsua sale hacia el relay (interno) y el
+        # relay reenvía al P-CSCF real desde el flow :5060 (le fijamos el
+        # upstream). Sin relay, apunta directo al P-CSCF como siempre.
+        if self._relay is not None:
+            self._relay.set_upstream(ab.pcscf_addr, ab.pcscf_port)
+            cfg.sipConfig.proxies.append(self._relay.int_proxy_uri(ab.transport))
+        else:
+            cfg.sipConfig.proxies.append(
+                f"sip:{ab.pcscf_addr}:{ab.pcscf_port};transport={ab.transport};lr"
+            )
         cred = pj.AuthCredInfo("digest", realm, ab.auth_user or ab.line_number, 0, ab.auth_password)
         cfg.sipConfig.authCreds.append(cred)
 
