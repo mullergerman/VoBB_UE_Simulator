@@ -186,14 +186,20 @@ function renderProfiles() {
 }
 
 function renderCallSelectors() {
-  for (const id of ["#call-from", "#call-to"]) {
-    const sel = $(id); const prev = sel.value; sel.innerHTML = "";
-    for (const a of abonados) {
-      const o = el("option", null, `${a.line_number} — ${a.display_name || a.domain}`);
-      o.value = id === "#call-from" ? a.id : a.line_number;
-      sel.appendChild(o);
-    }
-    if (prev) sel.value = prev;
+  // Origen: selector de abonados registrables (id como valor).
+  const from = $("#call-from"); const prevFrom = from.value; from.innerHTML = "";
+  for (const a of abonados) {
+    const o = el("option", null, `${a.line_number} — ${a.display_name || a.domain}`);
+    o.value = a.id; from.appendChild(o);
+  }
+  if (prevFrom) from.value = prevFrom;
+  // Destino: campo libre con sugerencias (número, num@dominio o sip:URI).
+  const dl = $("#call-to-list"); dl.innerHTML = "";
+  for (const a of abonados) {
+    const o = el("option");
+    o.value = a.line_number;
+    o.label = `${a.display_name || a.domain}`;
+    dl.appendChild(o);
   }
 }
 
@@ -694,7 +700,11 @@ $("#btn-new-user").onclick = () => openUserModal(null);
 $("#btn-cancel-user").onclick = closeUserModal;
 $("#btn-new-profile").onclick = () => openProfileModal(null);
 $("#btn-cancel-profile").onclick = closeProfileModal;
-$("#btn-call").onclick = () => api("POST", "/api/calls", { from_id: Number($("#call-from").value), to_number: $("#call-to").value });
+$("#btn-call").onclick = () => {
+  const to = $("#call-to").value.trim();
+  if (!to) { alert("Ingresá un destino (número, num@dominio o sip:URI)"); return; }
+  api("POST", "/api/calls", { from_id: Number($("#call-from").value), to_number: to });
+};
 $("#btn-hangup-all").onclick = () => api("POST", "/api/calls/hangup_all");
 $("#detail-select").onchange = (e) => { detailAbonado = e.target.value; renderDetail(); };
 

@@ -13,6 +13,13 @@ def _int(name: str, default: int) -> int:
         return default
 
 
+def _bool(name: str, default: bool) -> bool:
+    v = os.environ.get(name)
+    if v is None:
+        return default
+    return v.strip().lower() in ("1", "true", "yes", "on")
+
+
 # Modo de operación: "local" (registrar Kamailio embebido) o "ims" (P-CSCF real).
 MODE = os.environ.get("MODE", "local").lower()
 
@@ -32,6 +39,14 @@ PJSUA_LOG_LEVEL = _int("PJSUA_LOG_LEVEL", 4)  # 4+ imprime mensajes SIP crudos
 # el Dockerfile (PJSUA_MAX_ACC/PJSUA_MAX_CALLS=512); dejamos margen.
 MAX_ACCOUNTS = _int("MAX_ACCOUNTS", 500)
 MAX_CALLS = _int("MAX_CALLS", 500)
+
+# Suscripción al reg event package (RFC 3680 / TS 24.229). Un UE IMS real la
+# envía tras el REGISTER. PJSUA2 no la implementa; la agregamos con un stack SIP
+# propio (app/reg_subscribe.py). Por defecto activa solo en modo "ims" (en local
+# el registrar Kamailio embebido no maneja reg-event). Puerto 0 = efímero.
+REG_EVENT_SUBSCRIBE = _bool("REG_EVENT_SUBSCRIBE", MODE == "ims")
+REG_EVENT_PORT = _int("REG_EVENT_PORT", 0)
+REG_EVENT_EXPIRES = _int("REG_EVENT_EXPIRES", 600)
 
 # En modo local: dirección del registrar embebido (nombre de servicio compose).
 # Se usa sólo para el seed inicial de abonados.

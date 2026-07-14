@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>VoBB UE Simulator</title>
-  <link rel="stylesheet" href="/styles.css?v=4" />
+  <link rel="stylesheet" href="/styles.css?v=5" />
 </head>
 <body>
   <!-- ===== Pantalla de login ===== -->
@@ -76,7 +76,9 @@
           <div class="call-controls">
             <label>Origen<select id="call-from"></select></label>
             <span class="arrow">→</span>
-            <label>Destino<select id="call-to"></select></label>
+            <label>Destino<input id="call-to" list="call-to-list" autocomplete="off"
+              placeholder="número, num@dominio o sip:URI" /></label>
+            <datalist id="call-to-list"></datalist>
             <button id="btn-call" class="primary">Llamar</button>
             <button id="btn-hangup-all" class="danger">Colgar todas</button>
           </div>
@@ -277,6 +279,6 @@
     </div>
   </div>
 
-  <script src="/app.js?v=4"></script>
+  <script src="/app.js?v=5"></script>
 </body>
 </html>

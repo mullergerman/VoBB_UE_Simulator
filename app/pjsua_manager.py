@@ -131,6 +131,14 @@ if PJSUA_AVAILABLE:
                 }
                 self.manager._reg_state[self.abonado_id] = st
                 bus.emit("register", abonado_id=self.abonado_id, **st)
+                # Al confirmarse el registro, disparar/renovar la suscripción
+                # reg-event (UE IMS clásico). Al des-registrarse, cerrarla.
+                rs = self.manager._reg_subscriber
+                if rs is not None:
+                    if ai.regIsActive:
+                        rs.ensure(self.abonado)
+                    else:
+                        rs.stop_for(self.abonado_id)
             except Exception as e:  # pragma: no cover
                 bus.emit("log", level="warn", msg=f"regstate error: {e}")
 
@@ -163,6 +171,7 @@ class PjsuaManager:
         self._stats_thread: Optional[threading.Thread] = None
         self._running = False
         self._log_writer = None
+        self._reg_subscriber = None   # RegEventSubscriber (solo en modo ims)
         if not PJSUA_AVAILABLE:
             self._disabled_reason = f"pjsua2 no disponible: {_IMPORT_ERROR}"
         elif config.SIP_DISABLED:
@@ -211,8 +220,24 @@ class PjsuaManager:
         self._stats_thread.start()
         bus.emit("log", level="info", msg=f"PJSUA2 iniciado en puerto {config.SIP_PORT}/{config.SIP_TRANSPORT}")
 
+        # Suscripción reg-event (UE IMS clásico): stack SIP propio, independiente
+        # de pjsua. Se dispara al confirmarse cada registro (onRegState activo).
+        if config.REG_EVENT_SUBSCRIBE:
+            try:
+                from .reg_subscribe import RegEventSubscriber
+                self._reg_subscriber = RegEventSubscriber()
+                self._reg_subscriber.start()
+            except Exception as e:  # pragma: no cover
+                bus.emit("log", level="warn", msg=f"reg-event init error: {e}")
+
     def stop(self) -> None:
         self._running = False
+        if self._reg_subscriber is not None:
+            try:
+                self._reg_subscriber.stop()
+            except Exception:
+                pass
+            self._reg_subscriber = None
         if not self.available or self.ep is None:
             return
         try:
@@ -295,6 +320,11 @@ class PjsuaManager:
         with self._lock:
             acc = self.accounts.pop(abonado_id, None)
             self._reg_state.pop(abonado_id, None)
+        if self._reg_subscriber is not None:
+            try:
+                self._reg_subscriber.stop_for(abonado_id)
+            except Exception:
+                pass
         if acc is not None:
             try:
                 acc.shutdown()
@@ -366,7 +396,16 @@ class PjsuaManager:
         if acc is None:
             raise ValueError("Abonado origen no registrado en el motor SIP")
         ab = acc.abonado
-        dest = f"sip:{to_number}@{ab.domain}"
+        # Destino flexible: número suelto => sip:<num>@<dominio-del-origen>;
+        # "num@host" => se le antepone sip:; una URI sip:/sips: se usa tal cual.
+        dest = (to_number or "").strip()
+        low = dest.lower()
+        if low.startswith("sip:") or low.startswith("sips:"):
+            pass
+        elif "@" in dest:
+            dest = "sip:" + dest
+        else:
+            dest = f"sip:{dest}@{ab.domain}"
         call = _Call(acc, self, incoming=False)
         prm = pj.CallOpParam(True)
         try:
