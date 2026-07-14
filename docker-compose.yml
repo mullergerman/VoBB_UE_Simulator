@@ -26,6 +26,9 @@ services:
       # Relay SIP (opt-in). Para probar que registro/llamadas sobreviven al relay
       # en local: SIP_RELAY=1 docker compose --profile local up -d --build
       SIP_RELAY: "${SIP_RELAY:-0}"
+      # reg-event: off en local por defecto (Kamailio no lo maneja). Para VER el
+      # SUBSCRIBE emitido por el relay en local, ejecutar con REG_EVENT_SUBSCRIBE=1.
+      REG_EVENT_SUBSCRIBE: "${REG_EVENT_SUBSCRIBE:-0}"
     ports:
       - "8080:8080"                     # interfaz web
     volumes:
@@ -57,6 +60,8 @@ services:
       # flow :5060 del REGISTER (el P-CSCF lo exige). Activar con:
       #   SIP_RELAY=1 docker compose --profile ims up -d --build
       SIP_RELAY: "${SIP_RELAY:-0}"
+      # reg-event: on por defecto en ims (default histórico MODE==ims).
+      REG_EVENT_SUBSCRIBE: "${REG_EVENT_SUBSCRIBE:-1}"
     volumes:
       - vobb-data:/srv/data
 
