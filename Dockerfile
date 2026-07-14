@@ -52,7 +52,9 @@ RUN python3 -c "import pjsua2; print('pjsua2 OK')"
 
 WORKDIR /srv
 COPY requirements.txt .
-RUN python3 -m pip install --no-cache-dir -r requirements.txt
+# pip actualizado + reintentos/timeout para redes intermitentes (proxy/VM).
+RUN python3 -m pip install --no-cache-dir --upgrade pip \
+    && python3 -m pip install --no-cache-dir --retries 8 --timeout 120 -r requirements.txt
 
 COPY app ./app
 
