@@ -152,8 +152,7 @@ label.full { margin-bottom: 6px; }
 .hint { font-size: 11px; color: var(--muted); margin: 0 0 12px; font-style: italic; }
 .shared-sep { font-size: 11px; text-transform: uppercase; color: var(--muted); letter-spacing: .04em; margin: 4px 0 10px; padding-top: 12px; border-top: 1px solid var(--border); }
 #ab-shared.hidden { display: none; }
-#ab-shared.inherited { opacity: .7; }
-#ab-shared input:disabled, #ab-shared select:disabled { background: var(--panel); color: var(--muted); cursor: not-allowed; }
+#ab-shared.inherited .shared-sep { color: var(--accent); }
 .profile-pill { background: var(--panel2); border: 1px solid var(--border); color: #9db2ff; padding: 1px 8px; border-radius: 10px; font-size: 11px; }
 .profile-pill.none { color: var(--muted); }
 .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }

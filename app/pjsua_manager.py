@@ -273,17 +273,14 @@ class PjsuaManager:
         if not self.available:
             return
         self._ensure_thread()
-        with self._lock:
-            if not abonado.enabled:
-                self.remove_account(abonado.id)
-                return
-            acc = self.accounts.get(abonado.id)
-            if acc is None:
-                self.add_account(abonado)
-                return
-            acc.abonado = abonado
-            acc.line_number = abonado.line_number
-            acc.modify(self._account_config(abonado))
+        if not abonado.enabled:
+            self.remove_account(abonado.id)
+            return
+        # Recrear la cuenta (remove + add) en lugar de acc.modify(): el modify()
+        # dispara un re-registro que aborta el proceso con el assertion de pjsua
+        # `update_regc_contact: contact_hdr != NULL`. El alta fresca (add_account,
+        # que ya hace remove-if-exists + create) usa el path de registro estable.
+        self.add_account(abonado)
 
     def remove_account(self, abonado_id: int) -> None:
         self._ensure_thread()

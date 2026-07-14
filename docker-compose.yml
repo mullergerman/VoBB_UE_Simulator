@@ -15,6 +15,7 @@ services:
     image: vobb-ue-sim:latest
     profiles: ["local"]
     depends_on: [registrar]
+    restart: unless-stopped             # red de seguridad ante cualquier crash
     environment:
       MODE: local
       LOCAL_REGISTRAR: registrar        # nombre de servicio = P-CSCF simulado
@@ -42,6 +43,7 @@ services:
     image: vobb-ue-sim:latest
     profiles: ["ims"]
     network_mode: host                  # SIP/RTP reales hacia el P-CSCF
+    restart: unless-stopped             # red de seguridad ante cualquier crash
     environment:
       MODE: ims
       SIP_PORT: "5060"

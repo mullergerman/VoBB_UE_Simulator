@@ -424,18 +424,22 @@ function fillShared(src, f) {
     else inp.value = src[fld] == null ? "" : src[fld];
   }
 }
-// Con perfil: los campos compartidos se ven pero quedan deshabilitados (heredados).
-// Personalizado: se habilitan para editar la config de ese abonado en particular.
+// Con perfil: los campos compartidos muestran los valores heredados (editables).
+// Si el usuario edita cualquiera, el abonado pasa a «Personalizado» automáticamente.
 function onProfileChange() {
   const f = $("#abonado-form");
   const pid = $("#ab-profile").value;
   const p = pid ? profileById(pid) : null;
   if (p) fillShared(p, f);                 // previsualizar los valores heredados
-  for (const inp of $("#ab-shared").querySelectorAll("input,select")) inp.disabled = !!pid;
   $("#ab-shared").classList.toggle("inherited", !!pid);
   $("#ab-shared-note").textContent = pid
-    ? "Heredado del perfil. Elegí «Personalizado» para editar la config de este abonado."
+    ? "Se heredan del perfil. Si editás cualquiera, el abonado pasa a «Personalizado» automáticamente."
     : "Configuración propia de este abonado.";
+}
+// Editar un campo compartido con un perfil activo => desvincular (Personalizado),
+// conservando el valor que se está escribiendo.
+function onSharedEdit() {
+  if ($("#ab-profile").value) { $("#ab-profile").value = ""; onProfileChange(); }
 }
 function openModal(a) {
   const f = $("#abonado-form");
@@ -462,6 +466,9 @@ function openModal(a) {
 function closeModal() { $("#modal").classList.add("hidden"); }
 
 $("#ab-profile").onchange = onProfileChange;
+// Editar cualquier campo de config con un perfil activo => pasar a Personalizado.
+$("#ab-shared").addEventListener("input", onSharedEdit);
+$("#ab-shared").addEventListener("change", onSharedEdit);
 
 $("#abonado-form").onsubmit = async (ev) => {
   ev.preventDefault();
