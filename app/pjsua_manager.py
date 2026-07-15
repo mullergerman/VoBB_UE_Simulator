@@ -10,7 +10,6 @@ Un único `Endpoint` aloja N `Account` (uno por abonado). Maneja:
 Si pjsua2 no está disponible (host sin compilar), el manager entra en modo
 "disabled" y la web sigue funcionando para el CRUD.
 """
-import socket
 import threading
 import time
 from typing import Dict, List, Optional
@@ -18,23 +17,6 @@ from typing import Dict, List, Optional
 from . import config
 from .events import bus
 from .models import Abonado
-
-
-def _detect_local_ip() -> Optional[str]:
-    """IP local ruteable (no loopback) del host/contenedor. Se usa como
-    publicAddress de pjsua cuando el relay está activo (pjsua le habla al relay
-    por loopback y si no calcularía un Contact 127.0.0.1 inservible)."""
-    for target in (("8.8.8.8", 80), ("192.0.2.1", 9), ("10.255.255.255", 1)):
-        try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.connect(target)
-            ip = s.getsockname()[0]
-            s.close()
-            if ip and not ip.startswith("127."):
-                return ip
-        except Exception:
-            continue
-    return None
 
 try:
     import pjsua2 as pj
@@ -228,28 +210,34 @@ class PjsuaManager:
                 bus.emit("log", level="warn", msg=f"SIP relay no arrancó: {e}")
 
         # Transporte SIP. Con relay, pjsua bindea RELAY_PJSUA_PORT (el relay usa
-        # el puerto externo). Sin relay, usa SIP_PORT como siempre.
-        tcfg = pj.TransportConfig()
-        tcfg.port = config.RELAY_PJSUA_PORT if self._relay is not None else config.SIP_PORT
-        # Con relay, pjsua le envía al relay por 127.0.0.1, por lo que calcularía
-        # un Contact/Via loopback (127.0.0.1) — inservible para que el P-CSCF/
-        # registrar le mande llamadas entrantes. Forzamos la IP ruteable en
-        # publicAddress para que el Contact anuncie <ip-ruteable>:RELAY_PJSUA_PORT.
-        if self._relay is not None:
-            pub = config.RELAY_PUBLIC_ADDR
-            if not pub:
-                ip = _detect_local_ip()
-                if ip:
-                    pub = f"{ip}:{config.RELAY_PJSUA_PORT}"
-            if pub:
-                tcfg.publicAddress = pub
-                bus.emit("log", level="info", msg=f"pjsua publicAddress={pub}")
-                print(f"[relay] pjsua publicAddress = {pub}", flush=True)
-            else:
-                bus.emit("log", level="warn",
-                         msg="no se detectó IP ruteable para publicAddress (usar RELAY_PUBLIC_ADDR)")
+        # el puerto externo). Sin relay, usa SIP_PORT como siempre. El Contact
+        # ruteable con relay se logra apuntando el proxy a la IP ruteable del
+        # relay (ver _account_config), no vía publicAddress. publicAddress queda
+        # como override manual opcional (RELAY_PUBLIC_ADDR), tolerante a fallos.
         ttype = pj.PJSIP_TRANSPORT_TCP if config.SIP_TRANSPORT == "tcp" else pj.PJSIP_TRANSPORT_UDP
-        self.ep.transportCreate(ttype, tcfg)
+        port = config.RELAY_PJSUA_PORT if self._relay is not None else config.SIP_PORT
+        pub = config.RELAY_PUBLIC_ADDR if self._relay is not None else ""
+
+        def _mk_transport(public_addr):
+            tcfg = pj.TransportConfig()
+            tcfg.port = port
+            if public_addr:
+                tcfg.publicAddress = public_addr
+            self.ep.transportCreate(ttype, tcfg)
+
+        try:
+            _mk_transport(pub)
+            if pub:
+                print(f"[relay] pjsua transporte :{port} publicAddress={pub}", flush=True)
+        except Exception as e:
+            # Un publicAddress inválido no debe tumbar el arranque: reintentar sin él.
+            if pub:
+                bus.emit("log", level="warn",
+                         msg=f"transportCreate con publicAddress={pub} falló ({e}); sin publicAddress")
+                print(f"[relay] transportCreate publicAddress falló: {e}", flush=True)
+                _mk_transport("")
+            else:
+                raise
 
         self.ep.libStart()
 

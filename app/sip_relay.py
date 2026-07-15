@@ -57,7 +57,7 @@ class SipRelay:
         self._lock = threading.Lock()
         self._int_port = int(config.RELAY_INT_PORT)
         self._ext_port = int(config.RELAY_PORT)
-        self._route_needle = f"127.0.0.1:{self._int_port}"
+        self._local_ip = "127.0.0.1"   # IP ruteable hacia el upstream (para el proxy)
 
     # ---- ciclo de vida ----
     def start(self) -> None:
@@ -67,7 +67,10 @@ class SipRelay:
         ext.settimeout(1.0)
         inta = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         inta.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        inta.bind(("127.0.0.1", self._int_port))
+        # INT en 0.0.0.0 (no loopback): pjsua le habla a la IP ruteable del relay,
+        # así calcula un Contact/Via ruteable (no 127.0.0.1) sin necesitar
+        # publicAddress.
+        inta.bind(("0.0.0.0", self._int_port))
         inta.settimeout(1.0)
         self._ext, self._int = ext, inta
         self._running = True
@@ -92,11 +95,15 @@ class SipRelay:
         with self._lock:
             if self._upstream is None:
                 self._upstream = (addr, int(port))
-                print(f"[relay] upstream P-CSCF = {self._upstream}", flush=True)
+                self._local_ip = self.public_ip_for(addr)
+                print(f"[relay] upstream P-CSCF = {self._upstream} / local {self._local_ip}",
+                      flush=True)
 
     def int_proxy_uri(self, transport: str = "udp") -> str:
-        """URI del proxy interno que debe usar pjsua como outbound proxy."""
-        return f"sip:127.0.0.1:{self._int_port};transport={transport};lr"
+        """URI del proxy interno que debe usar pjsua como outbound proxy. Se
+        expone la IP ruteable del relay (no 127.0.0.1) para que pjsua anuncie un
+        Contact/Via alcanzable por el registrar/P-CSCF."""
+        return f"sip:{self._local_ip}:{self._int_port};transport={transport};lr"
 
     def public_ip_for(self, dst_addr: str) -> str:
         if config.RELAY_PUBLIC_ADDR:
@@ -106,9 +113,11 @@ class SipRelay:
             p.connect((dst_addr, 5060))
             ip = p.getsockname()[0]
             p.close()
-            return ip
+            if ip and not ip.startswith("127."):
+                return ip
         except Exception:
-            return "127.0.0.1"
+            pass
+        return "127.0.0.1"
 
     @property
     def public_port(self) -> int:
@@ -188,14 +197,16 @@ class SipRelay:
             bus.emit("log", level="warn", msg=f"relay EXT->INT error: {e}")
 
     def _pop_self_route(self, raw: str) -> str:
-        """Quita la primera línea Route que apunta al relay (proxy interno)."""
+        """Quita la primera línea Route que apunta al relay (proxy interno),
+        identificada por el puerto INT del relay."""
         crlf = "\r\n" if "\r\n" in raw else "\n"
+        needle = f":{self._int_port}"
         out = []
         popped = False
         for ln in raw.split(crlf):
             low = ln.lower()
             if not popped and (low.startswith("route:") or low.startswith("r:")) \
-                    and self._route_needle in ln:
+                    and needle in ln:
                 popped = True
                 continue
             out.append(ln)
