@@ -71,11 +71,39 @@ if PJSUA_AVAILABLE:
 
         # -- media lista: montar el eco --
         def onCallMediaState(self, prm):
-            if not self.account.abonado.echo_enabled or self.getId() < 0:
+            if self.getId() < 0:
                 return
             try:
                 ci = self.getInfo()
             except Exception:
+                return
+
+            # Diagnóstico: adónde va a mandar RTP pjsip y en qué estado quedó
+            # cada media. Si acá no hay ningún audio ACTIVE, no hay RTP por más
+            # que la señalización haya terminado bien.
+            active = 0
+            for i, mi in enumerate(ci.media):
+                if mi.type != pj.PJMEDIA_TYPE_AUDIO:
+                    continue
+                remote, codec, sdir = "?", "?", "?"
+                try:
+                    si = self.getStreamInfo(i)
+                    remote = si.remoteRtpAddress
+                    codec = f"{si.codecName}/{si.codecClockRate}"
+                    sdir = str(si.dir)
+                except Exception:
+                    pass
+                if mi.status == pj.PJSUA_CALL_MEDIA_ACTIVE:
+                    active += 1
+                print(f"[media] {self.account.line_number} call={ci.callIdString} "
+                      f"m[{i}] status={mi.status} dir={sdir} codec={codec} "
+                      f"remote_rtp={remote}", flush=True)
+            if active == 0:
+                bus.emit("log", level="warn",
+                         msg=f"{self.account.line_number}: ninguna media de audio "
+                             f"quedó activa (no va a haber RTP)")
+
+            if not self.account.abonado.echo_enabled:
                 return
             for i, mi in enumerate(ci.media):
                 if mi.type == pj.PJMEDIA_TYPE_AUDIO and mi.status == pj.PJSUA_CALL_MEDIA_ACTIVE:
@@ -174,6 +202,7 @@ class PjsuaManager:
         self._reg_subscriber = None   # RegEventSubscriber (solo en modo ims)
         self._relay = None            # SipRelay (SIP_RELAY)
         self._sip_public = ""         # Via/Contact efectivo del transporte
+        self._stats_warned = False    # para no repetir el error de stats RTP
         if not PJSUA_AVAILABLE:
             self._disabled_reason = f"pjsua2 no disponible: {_IMPORT_ERROR}"
         elif config.SIP_DISABLED:
@@ -654,7 +683,12 @@ class PjsuaManager:
                 rx_jitter_us=int(getattr(rtcp.rxStat.jitterUsec, "mean", 0)),
                 duration_s=ci.connectDuration.sec,
             )
-        except Exception:
+        except Exception as e:
+            # No enmascarar el motivo: sin stats no se puede distinguir "no
+            # mandamos" de "mandamos y no vuelve".
+            if not self._stats_warned:
+                self._stats_warned = True
+                print(f"[rtp] sin estadísticas de stream: {e}", flush=True)
             return
 
     # ---- estado para la API ----
