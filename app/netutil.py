@@ -137,6 +137,25 @@ def resolve(pcscf_hint: Optional[str] = None, pcscf_port: int = 5060) -> Optiona
             pass
         ip, origin = None, ""
 
+    if ip and pcscf_hint:
+        # Bindear NO cambia el ruteo: el kernel elige la interfaz de salida por
+        # la tabla de rutas, no por la IP del socket. Si no coinciden, los
+        # paquetes salen por otra interfaz con una IP de origen ajena y suelen
+        # morir en el reverse-path filter o en el firewall del camino.
+        route_ip = source_ip_for(pcscf_hint, pcscf_port)
+        if route_ip and route_ip != ip:
+            print(f"[net] AVISO: se forzó {ip} ({origin}) pero la ruta hacia el "
+                  f"P-CSCF {pcscf_hint} sale por la interfaz de {route_ip}. "
+                  f"Bindear no cambia el ruteo: hace falta una ruta hacia el "
+                  f"P-CSCF por la interfaz de {ip}, p.ej. "
+                  f"`ip route add {pcscf_hint}/32 dev <iface> src {ip}`.",
+                  flush=True)
+            try:
+                bus.emit("log", level="warn",
+                         msg=f"BIND {ip} no coincide con la ruta al P-CSCF ({route_ip})")
+            except Exception:
+                pass
+
     if not ip and pcscf_hint:
         ip = source_ip_for(pcscf_hint, pcscf_port)
         origin = f"ruta hacia {pcscf_hint}"
