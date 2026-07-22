@@ -240,6 +240,10 @@ class PjsuaManager:
                 self._relay.start()
             except Exception as e:  # pragma: no cover
                 self._relay = None
+                # Sin relay no hay flow único :5060: hay que verlo en el log.
+                print(f"[relay] ERROR: no arrancó ({e}). Sin relay el reg-event "
+                      f"y el in-dialog salen fuera del flow del REGISTER.",
+                      flush=True)
                 bus.emit("log", level="warn", msg=f"SIP relay no arrancó: {e}")
 
         # Transporte SIP. Con relay, pjsua bindea RELAY_PJSUA_PORT (el relay usa

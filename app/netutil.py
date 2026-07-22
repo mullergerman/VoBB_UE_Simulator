@@ -25,6 +25,7 @@ import struct
 from typing import Optional
 
 from . import config
+from .events import bus
 
 _bind_ip: Optional[str] = None
 
@@ -43,6 +44,45 @@ def _iface_ip(name: str) -> Optional[str]:
             s.close()
     except Exception:
         return None
+
+
+def local_addrs():
+    """[(interfaz, ip)] de las IPv4 locales (Linux, SIOCGIFCONF). Sólo para
+    diagnóstico: si falla, devuelve lista vacía."""
+    out = []
+    try:
+        import array
+        import fcntl  # sólo Linux
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            size = 64 * 40                      # hasta 64 interfaces
+            buf = array.array("B", b"\0" * size)
+            n = struct.unpack("iL", fcntl.ioctl(
+                s.fileno(), 0x8912,             # SIOCGIFCONF
+                struct.pack("iL", size, buf.buffer_info()[0])))[0]
+            raw = buf.tobytes()
+            for i in range(0, n, 40):           # sizeof(struct ifreq) en x86_64
+                name = raw[i:i + 16].split(b"\0", 1)[0].decode(errors="replace")
+                out.append((name, socket.inet_ntoa(raw[i + 20:i + 24])))
+        finally:
+            s.close()
+    except Exception:
+        pass
+    return out
+
+
+def is_bindable(ip: str) -> bool:
+    """True si `ip` está asignada a alguna interfaz de este host. Es la prueba
+    que importa: si no lo está, todo bind con esa IP falla (EADDRNOTAVAIL)."""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.bind((ip, 0))
+            return True
+        finally:
+            s.close()
+    except Exception:
+        return False
 
 
 def source_ip_for(dst_addr: str, port: int = 5060) -> Optional[str]:
@@ -67,6 +107,12 @@ def source_ip_for(dst_addr: str, port: int = 5060) -> Optional[str]:
 def resolve(pcscf_hint: Optional[str] = None, pcscf_port: int = 5060) -> Optional[str]:
     """Fija (una vez) la IP local de trabajo y la devuelve."""
     global _bind_ip
+    addrs = local_addrs()
+    print(f"[net] BIND_ADDR={config.BIND_ADDR or '-'} "
+          f"BIND_IFACE={config.BIND_IFACE or '-'} | interfaces locales: "
+          + (", ".join(f"{n}={a}" for n, a in addrs) or "(no enumeradas)"),
+          flush=True)
+
     ip = None
     origin = ""
     if config.BIND_ADDR:
@@ -75,7 +121,22 @@ def resolve(pcscf_hint: Optional[str] = None, pcscf_port: int = 5060) -> Optiona
         ip = _iface_ip(config.BIND_IFACE)
         origin = f"BIND_IFACE={config.BIND_IFACE}"
         if not ip:
-            print(f"[net] no se pudo leer la IP de {config.BIND_IFACE}", flush=True)
+            print(f"[net] ERROR: la interfaz {config.BIND_IFACE} no existe o no "
+                  f"tiene IPv4; se ignora BIND_IFACE", flush=True)
+
+    # Una IP que no está asignada a ninguna interfaz hace fallar TODO bind
+    # (EADDRNOTAVAIL) y la app terminaría degradando a 0.0.0.0 en silencio,
+    # que es justo el problema que se quería evitar. Se avisa fuerte.
+    if ip and not is_bindable(ip):
+        print(f"[net] ERROR: {ip} ({origin}) no está asignada a ninguna interfaz "
+              f"de este host; se ignora y se autodetecta por ruta.", flush=True)
+        try:
+            bus.emit("log", level="warn",
+                     msg=f"{origin}={ip} no es una IP local; se ignora")
+        except Exception:
+            pass
+        ip, origin = None, ""
+
     if not ip and pcscf_hint:
         ip = source_ip_for(pcscf_hint, pcscf_port)
         origin = f"ruta hacia {pcscf_hint}"
