@@ -164,6 +164,33 @@ class SipRelay:
     def public_port(self) -> int:
         return self._ext_port
 
+    def status(self) -> dict:
+        with self._lock:
+            up = self._upstream
+            pj = self._pjsua_addr
+        return {
+            "local_ip": self._local_ip,
+            "ext": f"{self._ext_sock_name()}",
+            "int": f"{self._int_sock_name()}",
+            "upstream": f"{up[0]}:{up[1]}" if up else "",
+            "pjsua": f"{pj[0]}:{pj[1]}" if pj else "",
+            "reg_subs": len(self._reg_callids),
+        }
+
+    def _ext_sock_name(self) -> str:
+        try:
+            a = self._ext.getsockname()
+            return f"{a[0]}:{a[1]}"
+        except Exception:
+            return ""
+
+    def _int_sock_name(self) -> str:
+        try:
+            a = self._int.getsockname()
+            return f"{a[0]}:{a[1]}"
+        except Exception:
+            return ""
+
     # ---- integración con el subscriber reg-event ----
     def set_reg_handler(self, fn: Callable[[str, tuple], None]) -> None:
         self._reg_handler = fn

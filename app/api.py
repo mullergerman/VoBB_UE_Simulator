@@ -358,6 +358,7 @@ def _event_allowed(evt: dict, ranges) -> bool:
 
 def _filter_status(st: dict, ranges) -> dict:
     st = dict(st)
+    st.pop("net", None)                    # detalle de infraestructura: solo admin
     regs = st.get("registrations") or {}
     st["registrations"] = {k: v for k, v in regs.items() if line_in_ranges(v.get("line", ""), ranges)}
     st["calls"] = [c for c in (st.get("calls") or []) if line_in_ranges(c.get("line", ""), ranges)]

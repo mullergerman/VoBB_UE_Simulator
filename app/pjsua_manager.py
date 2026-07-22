@@ -172,7 +172,8 @@ class PjsuaManager:
         self._running = False
         self._log_writer = None
         self._reg_subscriber = None   # RegEventSubscriber (solo en modo ims)
-        self._relay = None            # SipRelay (opt-in SIP_RELAY)
+        self._relay = None            # SipRelay (SIP_RELAY)
+        self._sip_public = ""         # Via/Contact efectivo del transporte
         if not PJSUA_AVAILABLE:
             self._disabled_reason = f"pjsua2 no disponible: {_IMPORT_ERROR}"
         elif config.SIP_DISABLED:
@@ -281,6 +282,7 @@ class PjsuaManager:
                 _mk_transport(p, b)
                 print(f"[sip] transporte :{port} bound={b or '0.0.0.0'} "
                       f"public={p or '-'}", flush=True)
+                self._sip_public = p or f"{b or '0.0.0.0'}:{port}"
                 last_err = None
                 break
             except Exception as e:
@@ -477,7 +479,11 @@ class PjsuaManager:
             pub_media = config.MEDIA_PUBLIC_ADDR or bind or ""
             if pub_media:
                 rtp.publicAddress = pub_media
+            print(f"[rtp] {ab.line_number}: bound={bind or '0.0.0.0'} "
+                  f"public={pub_media or '-'} port={config.RTP_PORT_START}", flush=True)
         except Exception as e:  # pragma: no cover
+            print(f"[rtp] ERROR: config RTP no aplicada ({e}); el SDP puede "
+                  f"anunciar otra interfaz", flush=True)
             bus.emit("log", level="warn", msg=f"config RTP (bind/public) no aplicada: {e}")
 
         # --- Perfil "UA IMS clásico" ---
@@ -660,7 +666,28 @@ class PjsuaManager:
             "accounts": list(self.accounts.keys()),
             "registrations": {str(k): v for k, v in self._reg_state.items()},
             "calls": list(self._call_state.values()),
+            "net": self.net_status(),
         }
+
+    def net_status(self) -> dict:
+        """Estado de red efectivo: qué IP quedó, de dónde salió, si el relay
+        está vivo y con qué puertos. Es lo que hay que mirar cuando el tráfico
+        sale por una interfaz que no es la esperada."""
+        st = {
+            "bind_addr_env": config.BIND_ADDR or "",
+            "bind_iface_env": config.BIND_IFACE or "",
+            "bind_ip": netutil.bind_ip() or "",
+            "local_addrs": [{"iface": n, "ip": a} for n, a in netutil.local_addrs()],
+            "sip_port": config.RELAY_PJSUA_PORT if self._relay is not None else config.SIP_PORT,
+            "sip_public": self._sip_public or "",
+            "rtp_port_start": config.RTP_PORT_START,
+            "rtp_public": config.MEDIA_PUBLIC_ADDR or netutil.bind_ip() or "",
+            "relay_enabled": bool(config.SIP_RELAY),
+            "relay_running": self._relay is not None,
+        }
+        if self._relay is not None:
+            st["relay"] = self._relay.status()
+        return st
 
 
 # Instancia global.
