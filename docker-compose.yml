@@ -23,12 +23,16 @@ services:
       SIP_PORT: "5060"
       RTP_PORT_START: "4000"
       PJSUA_LOG_LEVEL: "4"
-      # Relay SIP (opt-in). Para probar que registro/llamadas sobreviven al relay
-      # en local: SIP_RELAY=1 docker compose --profile local up -d --build
-      SIP_RELAY: "${SIP_RELAY:-0}"
+      # Relay SIP: siempre activo (mismo comportamiento que en ims). Se apaga
+      # con SIP_RELAY=0 sólo para comparar contra el camino directo.
+      SIP_RELAY: "${SIP_RELAY:-1}"
       # reg-event: off en local por defecto (Kamailio no lo maneja). Para VER el
       # SUBSCRIBE emitido por el relay en local, ejecutar con REG_EVENT_SUBSCRIBE=1.
       REG_EVENT_SUBSCRIBE: "${REG_EVENT_SUBSCRIBE:-0}"
+      # Interfaz local: en bridge hay una sola, se autodetecta por la ruta al
+      # registrar. Se puede forzar igual que en ims (BIND_ADDR / BIND_IFACE).
+      BIND_ADDR: "${BIND_ADDR:-}"
+      BIND_IFACE: "${BIND_IFACE:-}"
     ports:
       - "8080:8080"                     # interfaz web
     volumes:
@@ -56,12 +60,22 @@ services:
       RTP_PORT_START: "4000"
       PJSUA_LOG_LEVEL: "4"
       HTTP_PORT: "8080"
-      # Relay SIP: necesario para que el SUBSCRIBE reg-event salga del mismo
-      # flow :5060 del REGISTER (el P-CSCF lo exige). Activar con:
-      #   SIP_RELAY=1 docker compose --profile ims up -d --build
-      SIP_RELAY: "${SIP_RELAY:-0}"
+      # Relay SIP: SIEMPRE activo. Es lo que hace que REGISTER, INVITE, ACK/BYE
+      # y el SUBSCRIBE reg-event compartan el flow :5060 que el P-CSCF exige.
+      # Sólo para depurar se puede apagar con SIP_RELAY=0.
+      SIP_RELAY: "${SIP_RELAY:-1}"
       # reg-event: on por defecto en ims (default histórico MODE==ims).
       REG_EVENT_SUBSCRIBE: "${REG_EVENT_SUBSCRIBE:-1}"
+      # --- Interfaz de salida (VM con varias interfaces virtuales) ---
+      # Vacías => se autodetecta la IP de origen de la ruta hacia el P-CSCF y
+      # TODO (SIP, RTP, relay, reg-event) se bindea y se anuncia con esa IP.
+      # Para forzarla explícitamente, definir una de las dos:
+      #   BIND_ADDR=10.0.0.5   docker compose --profile ims up -d
+      #   BIND_IFACE=ens192    docker compose --profile ims up -d
+      BIND_ADDR: "${BIND_ADDR:-}"
+      BIND_IFACE: "${BIND_IFACE:-}"
+      # IP a anunciar en el SDP si hubiera NAT 1:1 delante (normalmente vacío).
+      MEDIA_PUBLIC_ADDR: "${MEDIA_PUBLIC_ADDR:-}"
     volumes:
       - vobb-data:/srv/data
 

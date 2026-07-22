@@ -30,10 +30,22 @@ HTTP_PORT = _int("HTTP_PORT", 8080)
 # Base de datos (SQLite)
 DB_PATH = os.environ.get("DB_PATH", os.path.join(os.getcwd(), "data", "vobb.db"))
 
+# Interfaz local de trabajo. En un host con varias interfaces, si se bindea a
+# 0.0.0.0 PJSIP publica en Via/Contact/SDP la IP de la ruta por defecto, que
+# puede no ser la interfaz por la que sale el SIP => SIP por una interfaz y RTP
+# esperado por otra, y el P-CSCF descartando por anti-spoofing. Con esto TODO
+# (SIP de pjsua, RTP, relay y reg-event) se bindea y se anuncia en una sola IP.
+# Vacío => se autodetecta la IP de origen de la ruta hacia el P-CSCF.
+BIND_ADDR = os.environ.get("BIND_ADDR", "").strip()      # IP local explícita
+BIND_IFACE = os.environ.get("BIND_IFACE", "").strip()    # o nombre de interfaz
+
 # SIP / PJSUA2
 SIP_PORT = _int("SIP_PORT", 5060)            # puerto SIP local del endpoint
 SIP_TRANSPORT = os.environ.get("SIP_TRANSPORT", "udp").lower()
 RTP_PORT_START = _int("RTP_PORT_START", 4000)
+# IP a anunciar en el c= del SDP si difiere de la de bind (NAT 1:1). Vacío =>
+# se anuncia BIND_ADDR/la IP autodetectada.
+MEDIA_PUBLIC_ADDR = os.environ.get("MEDIA_PUBLIC_ADDR", "").strip()
 PJSUA_LOG_LEVEL = _int("PJSUA_LOG_LEVEL", 4)  # 4+ imprime mensajes SIP crudos
 # Tope de cuentas/llamadas simultáneas. Debe ser <= los límites compilados en
 # el Dockerfile (PJSUA_MAX_ACC/PJSUA_MAX_CALLS=512); dejamos margen.
@@ -52,12 +64,16 @@ REG_EVENT_EXPIRES = _int("REG_EVENT_EXPIRES", 600)
 # (RELAY_PORT) y pjsua sale a través de él (proxy interno). Así TODO el tráfico
 # del UE —REGISTER, INVITE y el SUBSCRIBE reg-event— comparte un único flow de
 # origen, requisito del P-CSCF (ata el flow a la dupla IP:puerto del REGISTER).
-# Opt-in; apagado por defecto (sin relay, comportamiento idéntico al actual).
-SIP_RELAY = _bool("SIP_RELAY", False)
+# ACTIVO POR DEFECTO: sin él el reg-event nunca llega. SIP_RELAY=0 lo desactiva.
+SIP_RELAY = _bool("SIP_RELAY", True)
 RELAY_PORT = _int("RELAY_PORT", 5060)          # puerto externo que ve el P-CSCF
 RELAY_INT_PORT = _int("RELAY_INT_PORT", 5062)  # puerto interno pjsua<->relay
 RELAY_PJSUA_PORT = _int("RELAY_PJSUA_PORT", 5070)  # bind real de pjsua con relay
-RELAY_PUBLIC_ADDR = os.environ.get("RELAY_PUBLIC_ADDR", "")  # Via/Contact (opc.)
+# Via/Contact que publica pjsua. Con relay debe ser el puerto EXTERNO (:5060),
+# para que el P-CSCF vea una identidad coherente con el flow real y dirija ahí
+# todo lo entrante (respuestas, INVITE terminante, NOTIFY). Vacío => se deriva
+# solo como "<ip local>:RELAY_PORT"; "0"/"off" lo desactiva.
+RELAY_PUBLIC_ADDR = os.environ.get("RELAY_PUBLIC_ADDR", "").strip()
 
 # En modo local: dirección del registrar embebido (nombre de servicio compose).
 # Se usa sólo para el seed inicial de abonados.

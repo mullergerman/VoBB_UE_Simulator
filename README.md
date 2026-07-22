@@ -132,6 +132,34 @@ SIP_DISABLED=1 .venv/bin/uvicorn app.main:app --port 8080
 | `SIP_DISABLED` | — | `1` para arrancar sin motor SIP (sólo web) |
 | `ADMIN_USER` | `admin` | usuario admin creado en el primer arranque |
 | `ADMIN_PASSWORD` | `admin` | contraseña del admin inicial (cambiar) |
+| `BIND_ADDR` | — | IP local para **todo** (SIP, RTP, relay, reg-event). Vacío: se autodetecta por la ruta al P-CSCF |
+| `BIND_IFACE` | — | alternativa a `BIND_ADDR`: nombre de interfaz (`ens192`) |
+| `MEDIA_PUBLIC_ADDR` | — | IP a anunciar en el SDP si hay NAT 1:1 delante |
+| `SIP_RELAY` | `1` | relay SIP que unifica el flow de origen en `:5060`. `0` lo desactiva |
+| `REG_EVENT_SUBSCRIBE` | `1` en `ims` | suscripción reg-event (RFC 3680) tras el REGISTER |
+
+### Una sola interfaz de salida
+
+En un host con varias interfaces, si los sockets quedan en `0.0.0.0` PJSIP publica en
+`Via`/`Contact` y en el `c=` del SDP la IP de la **ruta por defecto**, que puede no ser la
+interfaz por la que realmente sale el SIP: el resultado típico es SIP por una interfaz y RTP
+esperado por otra, y un P-CSCF que descarta lo que no coincide con el flow del REGISTER.
+Por eso la app resuelve **una** IP local (`BIND_ADDR` > `BIND_IFACE` > ruta hacia el P-CSCF) y
+la usa para bindear y anunciar todo. Se ve en el log de arranque:
+
+```
+[net] IP local unificada: 10.20.30.40 (ruta hacia 10.20.30.1)
+[sip] transporte :5070 bound=10.20.30.40 public=10.20.30.40:5060
+[relay] EXT ('10.20.30.40', 5060)  INT ('10.20.30.40', 5062)
+```
+
+### Relay SIP
+
+El P-CSCF ata el flow del abonado a la dupla (IP, puerto) de origen del REGISTER. Como PJSUA2
+no puede emitir el SUBSCRIBE reg-event por su propio transporte, el relay (`app/sip_relay.py`)
+se queda con `:5060` y pjsua sale a través suyo: REGISTER, INVITE, ACK/BYE y el SUBSCRIBE
+comparten un único flow. El relay se anuncia con su propio `Via` y `Record-Route` para que ni
+las respuestas ni los requests in-dialog de pjsua se escapen por su puerto interno (`:5070`).
 
 ## Modelo de abonado
 

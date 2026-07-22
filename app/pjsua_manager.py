@@ -14,7 +14,7 @@ import threading
 import time
 from typing import Dict, List, Optional
 
-from . import config
+from . import config, netutil
 from .events import bus
 from .models import Abonado
 
@@ -181,6 +181,35 @@ class PjsuaManager:
             self._disabled_reason = None
 
     # ---- ciclo de vida ----
+    def _pcscf_hint(self):
+        """(addr, port) del P-CSCF del primer abonado habilitado, para autodetectar
+        por qué interfaz sale el tráfico. Devuelve (None, 5060) si no hay datos."""
+        try:
+            from sqlmodel import select
+            from .db import get_session, resolve_abonado
+            with get_session() as s:
+                for ab in s.exec(select(Abonado)).all():
+                    if not ab.enabled:
+                        continue
+                    r = resolve_abonado(ab, s)
+                    if r.pcscf_addr:
+                        return r.pcscf_addr, int(r.pcscf_port or 5060)
+        except Exception as e:  # pragma: no cover
+            print(f"[net] no se pudo leer el P-CSCF de la base: {e}", flush=True)
+        return None, 5060
+
+    def _relay_public_addr(self, bind: str) -> str:
+        """Via/Contact que publica pjsua. Con relay debe apuntar al puerto
+        EXTERNO del relay (lo que el P-CSCF ve y donde el relay escucha)."""
+        if self._relay is None:
+            return ""
+        cfgv = config.RELAY_PUBLIC_ADDR
+        if cfgv.lower() in ("0", "off", "no", "false"):
+            return ""
+        if cfgv:
+            return cfgv if ":" in cfgv else f"{cfgv}:{config.RELAY_PORT}"
+        return f"{bind}:{config.RELAY_PORT}" if bind else ""
+
     def start(self) -> None:
         if not self.available:
             bus.emit("log", level="warn", msg=self._disabled_reason)
@@ -197,7 +226,11 @@ class PjsuaManager:
         ep_cfg.uaConfig.maxCalls = min(config.MAX_CALLS, 512)
         self.ep.libInit(ep_cfg)
 
-        # Relay/ALG SIP (opt-in): se queda con el puerto que ve el P-CSCF; pjsua
+        # IP local unificada (SIP + RTP + relay + reg-event) para hosts con
+        # varias interfaces. Se resuelve antes de crear nada que bindee.
+        netutil.resolve(*self._pcscf_hint())
+
+        # Relay/ALG SIP: se queda con el puerto que ve el P-CSCF; pjsua
         # bindea otro puerto y sale a través del relay. Arranca ANTES del
         # transporte para tener el :5060 tomado por el relay.
         if config.SIP_RELAY:
@@ -210,34 +243,52 @@ class PjsuaManager:
                 bus.emit("log", level="warn", msg=f"SIP relay no arrancó: {e}")
 
         # Transporte SIP. Con relay, pjsua bindea RELAY_PJSUA_PORT (el relay usa
-        # el puerto externo). Sin relay, usa SIP_PORT como siempre. El Contact
-        # ruteable con relay se logra apuntando el proxy a la IP ruteable del
-        # relay (ver _account_config), no vía publicAddress. publicAddress queda
-        # como override manual opcional (RELAY_PUBLIC_ADDR), tolerante a fallos.
+        # el puerto externo). Sin relay, usa SIP_PORT como siempre.
+        #  - boundAddress: fija la interfaz. Es clave: con 0.0.0.0 PJSIP publica
+        #    en Via/Contact la IP de pj_gethostip() (ruta por defecto), que en un
+        #    host multi-interfaz puede no ser por la que sale el SIP.
+        #  - publicAddress: con relay, lo que ve el P-CSCF es el puerto EXTERNO
+        #    del relay, así que se anuncia "<ip>:RELAY_PORT" y todo lo entrante
+        #    (respuestas, INVITE terminante, NOTIFY) cae en el relay.
         ttype = pj.PJSIP_TRANSPORT_TCP if config.SIP_TRANSPORT == "tcp" else pj.PJSIP_TRANSPORT_UDP
         port = config.RELAY_PJSUA_PORT if self._relay is not None else config.SIP_PORT
-        pub = config.RELAY_PUBLIC_ADDR if self._relay is not None else ""
+        bind = netutil.bind_ip() or ""
+        pub = self._relay_public_addr(bind)
 
-        def _mk_transport(public_addr):
+        def _mk_transport(public_addr, bound_addr):
             tcfg = pj.TransportConfig()
             tcfg.port = port
+            if bound_addr:
+                tcfg.boundAddress = bound_addr
             if public_addr:
                 tcfg.publicAddress = public_addr
             self.ep.transportCreate(ttype, tcfg)
 
-        try:
-            _mk_transport(pub)
-            if pub:
-                print(f"[relay] pjsua transporte :{port} publicAddress={pub}", flush=True)
-        except Exception as e:
-            # Un publicAddress inválido no debe tumbar el arranque: reintentar sin él.
-            if pub:
-                bus.emit("log", level="warn",
-                         msg=f"transportCreate con publicAddress={pub} falló ({e}); sin publicAddress")
-                print(f"[relay] transportCreate publicAddress falló: {e}", flush=True)
-                _mk_transport("")
-            else:
-                raise
+        # Degradación progresiva: si una combinación falla, se reintenta con
+        # menos overrides antes de darse por vencido (nunca tumbar el arranque
+        # por un publicAddress/boundAddress que pjsip rechace).
+        attempts = []
+        for combo in ((pub, bind), ("", bind), ("", "")):
+            if combo not in attempts:
+                attempts.append(combo)
+        last_err = None
+        for i, (p, b) in enumerate(attempts):
+            try:
+                _mk_transport(p, b)
+                print(f"[sip] transporte :{port} bound={b or '0.0.0.0'} "
+                      f"public={p or '-'}", flush=True)
+                last_err = None
+                break
+            except Exception as e:
+                last_err = e
+                if i + 1 < len(attempts):
+                    bus.emit("log", level="warn",
+                             msg=f"transportCreate(bound={b or '-'}, public={p or '-'}) "
+                                 f"falló ({e}); reintentando")
+                    print(f"[sip] transportCreate falló ({b or '-'}/{p or '-'}): {e}",
+                          flush=True)
+        if last_err is not None:
+            raise last_err
 
         self.ep.libStart()
 
@@ -408,6 +459,22 @@ class PjsuaManager:
             )
         cred = pj.AuthCredInfo("digest", realm, ab.auth_user or ab.line_number, 0, ab.auth_password)
         cfg.sipConfig.authCreds.append(cred)
+
+        # --- Media/RTP en la MISMA interfaz que el SIP ---
+        # Sin boundAddress, el socket RTP queda en 0.0.0.0 y pjsua anuncia en el
+        # c= del SDP la IP de pj_gethostip() (ruta por defecto) => el remoto
+        # manda/espera RTP por otra interfaz distinta a la del SIP.
+        try:
+            rtp = cfg.mediaConfig.transportConfig
+            rtp.port = config.RTP_PORT_START
+            bind = netutil.bind_ip()
+            if bind:
+                rtp.boundAddress = bind
+            pub_media = config.MEDIA_PUBLIC_ADDR or bind or ""
+            if pub_media:
+                rtp.publicAddress = pub_media
+        except Exception as e:  # pragma: no cover
+            bus.emit("log", level="warn", msg=f"config RTP (bind/public) no aplicada: {e}")
 
         # --- Perfil "UA IMS clásico" ---
         # Desactivar RFC 5626 outbound: elimina el ";ob" del Contact y las

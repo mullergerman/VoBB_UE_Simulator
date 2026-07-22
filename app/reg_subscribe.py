@@ -29,7 +29,7 @@ import threading
 import time
 from typing import Dict, List, Optional
 
-from . import config
+from . import config, netutil
 from .events import bus
 
 _CALLID_RE = re.compile(r"^Call-ID:\s*(.+)$", re.IGNORECASE | re.MULTILINE)
@@ -146,7 +146,7 @@ class RegEventSubscriber:
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            s.bind(("0.0.0.0", int(config.REG_EVENT_PORT or 0)))
+            s.bind((netutil.bind_host(), int(config.REG_EVENT_PORT or 0)))
             s.settimeout(1.0)
             self._sock = s
             self._port = s.getsockname()[1]
@@ -220,15 +220,8 @@ class RegEventSubscriber:
 
     # ---- envío ----
     def _local_ip_for(self, dst_addr: str) -> str:
-        """IP local que el SO usaría para alcanzar el P-CSCF (para Via/Contact)."""
-        try:
-            probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            probe.connect((dst_addr, 5060))
-            ip = probe.getsockname()[0]
-            probe.close()
-            return ip
-        except Exception:
-            return "127.0.0.1"
+        """IP local a publicar en Via/Contact (la unificada, ver netutil)."""
+        return netutil.local_ip_for(dst_addr)
 
     def _send_subscribe(self, sub: _Sub, auth: Optional[str] = None,
                         auth_header_name: str = "Authorization") -> None:
