@@ -81,6 +81,7 @@ let currentView = "abonados";
 function showView(name) {
   if (!VIEWS.includes(name)) name = "abonados";
   currentView = name;
+  $("#view-perfil-edit").classList.add("hidden");   // el editor es un overlay aparte
   for (const v of VIEWS) {
     $("#view-" + v).classList.toggle("hidden", v !== name);
     $("#nav-" + v).classList.toggle("active", v === name);
@@ -172,7 +173,7 @@ function renderProfiles() {
     tr.appendChild(el("td", null, String(used)));
     const act = el("td", "col-actions"); const grp = el("div", "row-actions");
     if (can("manage_profiles")) {
-      const bEdit = el("button", "small", "Editar"); bEdit.onclick = () => openProfileModal(p);
+      const bEdit = el("button", "small", "Editar"); bEdit.onclick = () => openProfileEditor(p);
       const bDel = el("button", "small danger", "Eliminar");
       bDel.onclick = () => {
         const msg = used ? `El perfil "${p.name}" lo usan ${used} abonado(s). Se desvincularán (conservando esta config). ¿Continuar?` : `¿Borrar perfil "${p.name}"?`;
@@ -456,38 +457,17 @@ function sipRelevant(r, abId) {
   return false;
 }
 
-// ---------------- Modal ABONADO ----------------
+// ---------------- Modal ABONADO (solo identidad + perfil) ----------------
 const USER_FIELDS = ["display_name", "line_number", "short_number", "auth_user", "auth_password", "enabled"];
 
 function fillProfileSelect() {
+  // El abonado DEBE asociarse a un perfil: toda la config vive en el perfil.
   const sel = $("#ab-profile"); sel.innerHTML = "";
-  sel.appendChild(Object.assign(el("option", null, "— Personalizado (sin perfil) —"), { value: "" }));
-  for (const p of profiles) sel.appendChild(Object.assign(el("option", null, p.name), { value: String(p.id) }));
-}
-function fillShared(src, f) {
-  for (const fld of SHARED_FIELDS) {
-    const inp = f.elements[fld];
-    if (!inp) continue;
-    if (inp.type === "checkbox") inp.checked = !!src[fld];
-    else inp.value = src[fld] == null ? "" : src[fld];
+  if (!profiles.length) {
+    sel.appendChild(Object.assign(el("option", null, "— No hay perfiles: creá uno primero —"), { value: "" }));
+    return;
   }
-}
-// Con perfil: los campos compartidos muestran los valores heredados (editables).
-// Si el usuario edita cualquiera, el abonado pasa a «Personalizado» automáticamente.
-function onProfileChange() {
-  const f = $("#abonado-form");
-  const pid = $("#ab-profile").value;
-  const p = pid ? profileById(pid) : null;
-  if (p) fillShared(p, f);                 // previsualizar los valores heredados
-  $("#ab-shared").classList.toggle("inherited", !!pid);
-  $("#ab-shared-note").textContent = pid
-    ? "Se heredan del perfil. Si editás cualquiera, el abonado pasa a «Personalizado» automáticamente."
-    : "Configuración propia de este abonado.";
-}
-// Editar un campo compartido con un perfil activo => desvincular (Personalizado),
-// conservando el valor que se está escribiendo.
-function onSharedEdit() {
-  if ($("#ab-profile").value) { $("#ab-profile").value = ""; onProfileChange(); }
+  for (const p of profiles) sel.appendChild(Object.assign(el("option", null, p.name), { value: String(p.id) }));
 }
 function openModal(a) {
   const f = $("#abonado-form");
@@ -495,6 +475,11 @@ function openModal(a) {
   f.elements.id.value = a ? a.id : "";   // clave: limpiar el id en alta (reset no lo limpia)
   for (const inp of f.querySelectorAll("input,select")) inp.disabled = false;
   fillProfileSelect();
+  const noProfiles = !profiles.length;
+  $("#ab-save").disabled = noProfiles;
+  $("#ab-profile-note").innerHTML = noProfiles
+    ? "No hay perfiles cargados. Creá un perfil en la vista <b>Perfiles</b> antes de dar de alta abonados."
+    : "Toda la config de red, comportamiento, reg-event y mensajes SIP la aporta el perfil (se edita en la vista <b>Perfiles</b>). Acá solo se define la identidad del abonado y a qué perfil pertenece.";
   $("#modal-title").textContent = a ? "Editar abonado " + a.line_number : "Nuevo abonado";
   if (a) {
     f.elements.id.value = a.id;
@@ -503,21 +488,13 @@ function openModal(a) {
       if (inp.type === "checkbox") inp.checked = !!a[k];
       else inp.value = a[k] == null ? "" : a[k];
     }
-    // Campos de config: mostrar los valores EFECTIVOS (heredados del perfil o propios).
-    fillShared(effective(a), f);
-    $("#ab-profile").value = a.profile_id != null ? String(a.profile_id) : "";
+    $("#ab-profile").value = a.profile_id != null ? String(a.profile_id) : (profiles[0] ? String(profiles[0].id) : "");
   } else if (profiles.length) {
     $("#ab-profile").value = String(profiles[0].id);   // por defecto, primer perfil
   }
-  onProfileChange();
   $("#modal").classList.remove("hidden");
 }
 function closeModal() { $("#modal").classList.add("hidden"); }
-
-$("#ab-profile").onchange = onProfileChange;
-// Editar cualquier campo de config con un perfil activo => pasar a Personalizado.
-$("#ab-shared").addEventListener("input", onSharedEdit);
-$("#ab-shared").addEventListener("change", onSharedEdit);
 
 $("#abonado-form").onsubmit = async (ev) => {
   ev.preventDefault();
@@ -529,46 +506,158 @@ $("#abonado-form").onsubmit = async (ev) => {
     else data[inp.name] = inp.value;
   }
   const id = data.id; delete data.id;
-  // profile_id: "" => sin perfil (null); si hay perfil, no mandamos los campos
-  // compartidos (los aporta el perfil).
   data.profile_id = data.profile_id ? Number(data.profile_id) : null;
-  if (data.profile_id != null) for (const fld of SHARED_FIELDS) delete data[fld];
+  if (data.profile_id == null) { alert("Elegí un perfil para el abonado."); return; }
   if (id) await api("PUT", "/api/abonados/" + id, data);
   else await api("POST", "/api/abonados", data);
   closeModal();
   await loadAll();
 };
 
-// ---------------- Modal PERFIL ----------------
-function openProfileModal(p) {
-  const f = $("#profile-form");
+// ---------------- Editor de PERFIL (vista dedicada) ----------------
+// Campos simples del perfil (todo salvo los hdr_* de mensajes SIP).
+const PROFILE_SIMPLE = ["name","domain","pcscf_addr","pcscf_port","transport","auth_realm","registrar_uri","codec_pref","alerting_delay_s","echo_enabled","reg_expires","reg_event_enabled","reg_event_expires"];
+const PROC_LABELS = { hdr_register: "REGISTER", hdr_invite: "INVITE", hdr_subscribe: "SUBSCRIBE" };
+const OP_LABELS = { set: "reemplaza", add: "agrega", del: "quita" };
+let peRules = { hdr_register: [], hdr_invite: [], hdr_subscribe: [] };
+let peActiveProc = "hdr_register";
+
+// Mini-DSL <-> filas: espeja app/sip_headers.py (parse_rules / serialize).
+function parseDsl(text) {
+  const rows = [];
+  for (const raw of (text || "").replace(/\r\n/g, "\n").split("\n")) {
+    const line = raw.trim();
+    if (!line || line.startsWith("#")) continue;
+    if (line.startsWith("-")) { const name = line.slice(1).split(":")[0].trim(); if (name) rows.push({ op: "del", name, value: "" }); continue; }
+    let op = "set", body = line;
+    if (line.startsWith("+")) { op = "add"; body = line.slice(1).trim(); }
+    const i = body.indexOf(":");
+    if (i < 0) continue;
+    const name = body.slice(0, i).trim(), value = body.slice(i + 1).trim();
+    if (name) rows.push({ op, name, value });
+  }
+  return rows;
+}
+function serializeDsl(rows) {
+  return rows.filter((r) => r.name && r.name.trim()).map((r) => {
+    if (r.op === "del") return "-" + r.name.trim();
+    if (r.op === "add") return "+" + r.name.trim() + ": " + (r.value || "");
+    return r.name.trim() + ": " + (r.value || "");
+  }).join("\n");
+}
+// Aplica filas sobre pares base (espeja apply_to_pairs) para el preview.
+function applyRulesPreview(base, rows) {
+  const out = base.map((p) => [p[0], p[1]]);
+  const idxOf = (name) => out.findIndex(([n]) => n.toLowerCase() === name.toLowerCase());
+  for (const r of rows) {
+    if (!r.name || !r.name.trim()) continue;
+    const name = r.name.trim(), low = name.toLowerCase();
+    if (r.op === "del") { for (let i = out.length - 1; i >= 0; i--) if (out[i][0].toLowerCase() === low) out.splice(i, 1); }
+    else if (r.op === "add") out.push([name, r.value || ""]);
+    else { const i = idxOf(name); if (i >= 0) { out[i] = [name, r.value || ""]; for (let j = out.length - 1; j > i; j--) if (out[j][0].toLowerCase() === low) out.splice(j, 1); } else out.push([name, r.value || ""]); }
+  }
+  return out;
+}
+// Headers por defecto (aproximados) para el preview, según el backend.
+function previewBase(proc, f) {
+  const dom = (f.elements.domain.value || "dominio").trim();
+  const pcscf = (f.elements.pcscf_addr.value || "pcscf").trim();
+  const port = f.elements.pcscf_port.value || "5060";
+  const tr = (f.elements.transport.value || "udp").toUpperCase();
+  const exp = f.elements.reg_event_expires.value || "600";
+  if (proc === "hdr_register") return { line: `REGISTER sip:${dom} SIP/2.0`, core: ["Via","Max-Forwards","From","To","Call-ID","CSeq","Contact","Expires","Authorization"], base: [["Supported","100rel,replaces,timer,privacy,in-dialog"],["Accept","application/sdp,application/simservs+xml"]] };
+  if (proc === "hdr_invite") return { line: `INVITE sip:<destino>@${dom} SIP/2.0`, core: ["Via","Max-Forwards","From","To","Call-ID","CSeq","Contact","Content-Type","Content-Length"], base: [] };
+  return { line: `SUBSCRIBE sip:<usuario>@${dom} SIP/2.0`, core: [], base: [["Via",`SIP/2.0/${tr} <ip>:5060;rport;branch=...`],["Max-Forwards","70"],["Route",`<sip:${pcscf}:${port};lr>`],["From","<sip:<usuario>@"+dom+">;tag=..."],["To","<sip:<usuario>@"+dom+">"],["Call-ID","...@vobb-reg"],["CSeq","1 SUBSCRIBE"],["Contact","<sip:<usuario>@<ip>:5060;transport="+(tr.toLowerCase())+">"],["Event","reg"],["Accept","application/reginfo+xml"],["Expires",exp],["User-Agent","VoBB-UE-Simulator"]] };
+}
+function renderPreview() {
+  const f = $("#profile-edit-form");
+  const { line, core, base } = previewBase(peActiveProc, f);
+  const rows = peRules[peActiveProc];
+  const applied = applyRulesPreview(base, rows);
+  const parts = [line];
+  for (const name of core) parts.push(name + ": …  ⟨pjsip⟩");
+  for (const [n, v] of applied) parts.push(n + ": " + v);
+  $("#pe-preview-body").textContent = parts.join("\n");
+}
+function renderRules() {
+  const box = $("#pe-rules"); box.innerHTML = "";
+  const rows = peRules[peActiveProc];
+  if (!rows.length) box.appendChild(el("div", "rules-empty", "Sin reglas: el mensaje sale con los headers por defecto."));
+  rows.forEach((r, idx) => {
+    const row = el("div", "rule-row");
+    const opSel = el("select", "r-op");
+    for (const op of ["set", "add", "del"]) opSel.appendChild(Object.assign(el("option", null, OP_LABELS[op]), { value: op, selected: r.op === op }));
+    opSel.onchange = () => { r.op = opSel.value; renderRules(); };
+    const name = Object.assign(el("input", "r-name"), { value: r.name, placeholder: "Header (ej. P-Access-Network-Info)" });
+    name.oninput = () => { r.name = name.value; renderPreview(); };
+    const val = Object.assign(el("input", "r-val"), { value: r.value, placeholder: r.op === "del" ? "(no aplica)" : "Valor" });
+    val.disabled = r.op === "del";
+    val.oninput = () => { r.value = val.value; renderPreview(); };
+    const del = el("button", "small danger r-del", "✕"); del.type = "button";
+    del.onclick = () => { rows.splice(idx, 1); renderRules(); };
+    row.append(opSel, name, val, del);
+    box.appendChild(row);
+  });
+  renderPreview();
+}
+function setProc(proc) {
+  peActiveProc = proc;
+  for (const b of $("#pe-proc-tabs").querySelectorAll("button")) b.classList.toggle("active", b.dataset.proc === proc);
+  $("#pe-proc-hint").innerHTML = proc === "hdr_subscribe"
+    ? "SUBSCRIBE (builder propio): se puede reemplazar/agregar/quitar <b>cualquier</b> header, incluido Expires, Event o User-Agent."
+    : PROC_LABELS[proc] + ": solo headers de <b>extensión</b> (los core Via/From/To/Call-ID/CSeq/Contact los genera pjsip).";
+  renderRules();
+}
+function openProfileEditor(p) {
+  const f = $("#profile-edit-form");
   f.reset();
-  f.elements.id.value = p ? p.id : "";   // clave: limpiar el id en alta (reset no lo limpia)
-  $("#profile-modal-title").textContent = p ? "Editar perfil: " + p.name : "Nuevo perfil";
-  if (p) for (const k of Object.keys(p)) {
-    const inp = f.elements[k];
-    if (!inp) continue;
+  f.elements.id.value = p ? p.id : "";
+  $("#pe-title").textContent = p ? "Perfil: " + p.name : "Nuevo perfil";
+  if (p) for (const k of PROFILE_SIMPLE) {
+    const inp = f.elements[k]; if (!inp) continue;
     if (inp.type === "checkbox") inp.checked = !!p[k]; else inp.value = p[k] == null ? "" : p[k];
   }
-  $("#profile-modal").classList.remove("hidden");
+  peRules = {
+    hdr_register: parseDsl(p ? p.hdr_register : ""),
+    hdr_invite: parseDsl(p ? p.hdr_invite : ""),
+    hdr_subscribe: parseDsl(p ? p.hdr_subscribe : ""),
+  };
+  // Mostrar la vista (overlay): ocultar las 4 vistas base y el editor visible.
+  for (const v of VIEWS) $("#view-" + v).classList.add("hidden");
+  $("#nav-perfiles").classList.add("active");
+  $("#view-perfil-edit").classList.remove("hidden");
+  $("#app").classList.remove("nav-open");
+  setProc("hdr_register");
 }
-function closeProfileModal() { $("#profile-modal").classList.add("hidden"); }
+function closeProfileEditor() { showView("perfiles"); }
 
-$("#profile-form").onsubmit = async (ev) => {
-  ev.preventDefault();
-  const f = ev.target; const data = {};
-  for (const inp of f.elements) {
-    if (!inp.name) continue;
-    if (inp.type === "checkbox") data[inp.name] = inp.checked;
-    else if (inp.type === "number") data[inp.name] = inp.value === "" ? null : Number(inp.value);
-    else data[inp.name] = inp.value;
+async function saveProfile() {
+  const f = $("#profile-edit-form");
+  if (!f.reportValidity()) return;
+  const data = {};
+  for (const k of PROFILE_SIMPLE) {
+    const inp = f.elements[k]; if (!inp) continue;
+    if (inp.type === "checkbox") data[k] = inp.checked;
+    else if (inp.type === "number") data[k] = inp.value === "" ? null : Number(inp.value);
+    else data[k] = inp.value;
   }
-  const id = data.id; delete data.id;
+  data.hdr_register = serializeDsl(peRules.hdr_register);
+  data.hdr_invite = serializeDsl(peRules.hdr_invite);
+  data.hdr_subscribe = serializeDsl(peRules.hdr_subscribe);
+  const id = f.elements.id.value;
   if (id) await api("PUT", "/api/profiles/" + id, data);
   else await api("POST", "/api/profiles", data);
-  closeProfileModal();
+  closeProfileEditor();
   await loadAll();
-};
+}
+
+$("#pe-proc-tabs").onclick = (e) => { const b = e.target.closest("button[data-proc]"); if (b) setProc(b.dataset.proc); };
+$("#pe-add-rule").onclick = () => { peRules[peActiveProc].push({ op: "set", name: "", value: "" }); renderRules(); };
+$("#pe-save").onclick = saveProfile;
+$("#pe-back").onclick = closeProfileEditor;
+$("#profile-edit-form").addEventListener("submit", (e) => { e.preventDefault(); saveProfile(); });
+// Reflejar en el preview los cambios de los campos que participan (dominio/pcscf/expires).
+$("#profile-edit-form").addEventListener("input", (e) => { if (["domain","pcscf_addr","pcscf_port","transport","reg_event_expires"].includes(e.target.name)) renderPreview(); });
 
 // ---------------- Usuarios (admin) ----------------
 const ALL_PERMS = { edit_abonados: "Abonados", control_calls: "Llamadas", manage_profiles: "Perfiles" };
@@ -708,8 +797,7 @@ $("#btn-new").onclick = () => openModal(null);
 $("#btn-cancel").onclick = closeModal;
 $("#btn-new-user").onclick = () => openUserModal(null);
 $("#btn-cancel-user").onclick = closeUserModal;
-$("#btn-new-profile").onclick = () => openProfileModal(null);
-$("#btn-cancel-profile").onclick = closeProfileModal;
+$("#btn-new-profile").onclick = () => openProfileEditor(null);
 $("#btn-call").onclick = () => {
   const to = $("#call-to").value.trim();
   if (!to) { alert("Ingresá un destino (número, num@dominio o sip:URI)"); return; }

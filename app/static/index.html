@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>VoBB UE Simulator</title>
-  <link rel="stylesheet" href="/styles.css?v=6" />
+  <link rel="stylesheet" href="/styles.css?v=7" />
 </head>
 <body>
   <!-- ===== Pantalla de login ===== -->
@@ -157,6 +157,79 @@
         </div>
       </section>
 
+      <!-- ===== Vista: Editor de perfil ===== -->
+      <section id="view-perfil-edit" class="view hidden">
+        <div class="view-head">
+          <div class="pe-crumb">
+            <button id="pe-back" class="small">‹ Perfiles</button>
+            <h1 id="pe-title">Perfil</h1>
+          </div>
+          <button id="pe-save" class="primary">Guardar perfil</button>
+        </div>
+        <form id="profile-edit-form">
+          <input type="hidden" name="id" />
+
+          <div class="panel pe-panel">
+            <div class="panel-head"><h2>Red</h2></div>
+            <div class="pe-body form-grid">
+              <label>Nombre del perfil<input name="name" required placeholder="ej. IMS Producción" /></label>
+              <label>Dominio<input name="domain" required placeholder="ims.mnc.mcc.3gppnetwork.org" /></label>
+              <label>P-CSCF addr<input name="pcscf_addr" required /></label>
+              <label>P-CSCF port<input name="pcscf_port" type="number" value="5060" /></label>
+              <label>Transporte
+                <select name="transport"><option>udp</option><option>tcp</option></select>
+              </label>
+              <label>Realm (vacío = cualquiera)<input name="auth_realm" placeholder="* (cualquier realm)" /></label>
+              <label class="full">Registrar/Request-URI (vacío = dominio)<input name="registrar_uri" placeholder="ej. sip:100.103.6.12" /></label>
+            </div>
+          </div>
+
+          <div class="panel pe-panel">
+            <div class="panel-head"><h2>Comportamiento</h2></div>
+            <div class="pe-body form-grid">
+              <label>Codecs<input name="codec_pref" value="PCMU,PCMA" /></label>
+              <label>Alerting (s)<input name="alerting_delay_s" type="number" value="3" /></label>
+              <label>Reg expires (s)<input name="reg_expires" type="number" value="600" /></label>
+              <label class="chk">Eco<input name="echo_enabled" type="checkbox" checked /></label>
+            </div>
+          </div>
+
+          <div class="panel pe-panel">
+            <div class="panel-head"><h2>reg-event (SUBSCRIBE)</h2></div>
+            <div class="pe-body form-grid">
+              <label class="chk">Emitir SUBSCRIBE Event: reg<input name="reg_event_enabled" type="checkbox" checked /></label>
+              <label>Periodo / Expires (s)<input name="reg_event_expires" type="number" value="600" /></label>
+            </div>
+          </div>
+
+          <div class="panel pe-panel">
+            <div class="panel-head">
+              <h2>Mensajes SIP</h2>
+              <div class="seg" id="pe-proc-tabs">
+                <button type="button" data-proc="hdr_register" class="active">REGISTER</button>
+                <button type="button" data-proc="hdr_invite">INVITE</button>
+                <button type="button" data-proc="hdr_subscribe">SUBSCRIBE</button>
+              </div>
+            </div>
+            <div class="pe-body">
+              <p class="hint" id="pe-proc-hint"></p>
+              <div class="rules-head">
+                <span class="rh-op">Operación</span>
+                <span class="rh-name">Header</span>
+                <span class="rh-val">Valor</span>
+                <span class="rh-del"></span>
+              </div>
+              <div id="pe-rules"></div>
+              <button type="button" id="pe-add-rule" class="small add-rule">＋ Agregar header</button>
+              <div class="pe-preview">
+                <div class="pe-preview-head">Vista previa <span class="hint">(aproximada — pjsip genera los headers core)</span></div>
+                <pre id="pe-preview-body" class="preview-body"></pre>
+              </div>
+            </div>
+          </div>
+        </form>
+      </section>
+
       <!-- ===== Vista: Usuarios ===== -->
       <section id="view-usuarios" class="view hidden">
         <div class="view-head">
@@ -184,9 +257,9 @@
       <form id="abonado-form">
         <input type="hidden" name="id" />
         <label class="full">Perfil
-          <select name="profile_id" id="ab-profile"></select>
+          <select name="profile_id" id="ab-profile" required></select>
         </label>
-        <p class="hint">Con un perfil, los campos de red/comportamiento se heredan; solo definís los datos propios del abonado.</p>
+        <p class="hint" id="ab-profile-note">Toda la config de red, comportamiento, reg-event y mensajes SIP la aporta el perfil (se edita en la vista <b>Perfiles</b>). Acá solo se define la identidad del abonado y a qué perfil pertenece.</p>
         <div class="form-grid">
           <label>Display name<input name="display_name" /></label>
           <label>Línea (número / IMPU)<input name="line_number" required /></label>
@@ -195,76 +268,9 @@
           <label>Password (plano)<input name="auth_password" /></label>
           <label class="chk">Habilitado<input name="enabled" type="checkbox" checked /></label>
         </div>
-        <div id="ab-shared">
-          <div class="shared-sep">Parámetros de red / comportamiento</div>
-          <p class="hint" id="ab-shared-note"></p>
-          <div class="form-grid">
-            <label>Dominio<input name="domain" /></label>
-            <label>P-CSCF addr<input name="pcscf_addr" /></label>
-            <label>P-CSCF port<input name="pcscf_port" type="number" value="5060" /></label>
-            <label>Transporte
-              <select name="transport"><option>udp</option><option>tcp</option></select>
-            </label>
-            <label>Realm (vacío = cualquiera)<input name="auth_realm" placeholder="* (cualquier realm)" /></label>
-            <label>Registrar/Request-URI (vacío = dominio)<input name="registrar_uri" placeholder="ej. sip:100.103.6.12" /></label>
-            <label>Codecs<input name="codec_pref" value="PCMU,PCMA" /></label>
-            <label>Alerting (s)<input name="alerting_delay_s" type="number" value="3" /></label>
-            <label>Reg expires<input name="reg_expires" type="number" value="600" /></label>
-            <label class="chk">Eco<input name="echo_enabled" type="checkbox" checked /></label>
-            <label class="chk">reg-event (SUBSCRIBE)<input name="reg_event_enabled" type="checkbox" checked /></label>
-            <label>Periodo reg-event (s)<input name="reg_event_expires" type="number" value="600" /></label>
-          </div>
-          <div class="shared-sep">Headers SIP por procedimiento
-            <span class="hint">Vacío = por defecto. <code>Name: valor</code> reemplaza · <code>+Name: valor</code> agrega · <code>-Name</code> quita</span>
-          </div>
-          <div class="form-grid">
-            <label class="full">Headers REGISTER<textarea name="hdr_register" rows="3" placeholder="P-Access-Network-Info: 3GPP-E-UTRAN;utran-cell-id-3gpp=...&#10;-Supported"></textarea></label>
-            <label class="full">Headers INVITE<textarea name="hdr_invite" rows="3" placeholder="P-Preferred-Identity: <sip:+541112341234@ims.mnc.mcc.3gppnetwork.org>"></textarea></label>
-            <label class="full">Headers SUBSCRIBE<textarea name="hdr_subscribe" rows="3" placeholder="User-Agent: MiUA/1.0&#10;Expires: 1200"></textarea></label>
-          </div>
-        </div>
         <div class="modal-actions">
           <button type="button" id="btn-cancel">Cancelar</button>
-          <button type="submit" class="primary">Guardar</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
-  <!-- ===== Modal PERFIL ===== -->
-  <div id="profile-modal" class="modal hidden">
-    <div class="modal-box">
-      <h3 id="profile-modal-title">Nuevo perfil</h3>
-      <form id="profile-form">
-        <input type="hidden" name="id" />
-        <div class="form-grid">
-          <label>Nombre<input name="name" required /></label>
-          <label>Dominio<input name="domain" required /></label>
-          <label>P-CSCF addr<input name="pcscf_addr" required /></label>
-          <label>P-CSCF port<input name="pcscf_port" type="number" value="5060" /></label>
-          <label>Transporte
-            <select name="transport"><option>udp</option><option>tcp</option></select>
-          </label>
-          <label>Realm (vacío = cualquiera)<input name="auth_realm" placeholder="* (cualquier realm)" /></label>
-          <label>Registrar/Request-URI (vacío = dominio)<input name="registrar_uri" placeholder="ej. sip:100.103.6.12" /></label>
-          <label>Codecs<input name="codec_pref" value="PCMU,PCMA" /></label>
-          <label>Alerting (s)<input name="alerting_delay_s" type="number" value="3" /></label>
-          <label>Reg expires<input name="reg_expires" type="number" value="600" /></label>
-          <label class="chk">Eco<input name="echo_enabled" type="checkbox" checked /></label>
-          <label class="chk">reg-event (SUBSCRIBE)<input name="reg_event_enabled" type="checkbox" checked /></label>
-          <label>Periodo reg-event (s)<input name="reg_event_expires" type="number" value="600" /></label>
-        </div>
-        <div class="shared-sep">Headers SIP por procedimiento
-          <span class="hint">Vacío = por defecto. <code>Name: valor</code> reemplaza · <code>+Name: valor</code> agrega · <code>-Name</code> quita</span>
-        </div>
-        <div class="form-grid">
-          <label class="full">Headers REGISTER<textarea name="hdr_register" rows="3" placeholder="P-Access-Network-Info: 3GPP-E-UTRAN;utran-cell-id-3gpp=...&#10;-Supported"></textarea></label>
-          <label class="full">Headers INVITE<textarea name="hdr_invite" rows="3" placeholder="P-Preferred-Identity: <sip:+541112341234@ims...>"></textarea></label>
-          <label class="full">Headers SUBSCRIBE<textarea name="hdr_subscribe" rows="3" placeholder="User-Agent: MiUA/1.0&#10;Expires: 1200"></textarea></label>
-        </div>
-        <div class="modal-actions">
-          <button type="button" id="btn-cancel-profile">Cancelar</button>
-          <button type="submit" class="primary">Guardar</button>
+          <button type="submit" class="primary" id="ab-save">Guardar</button>
         </div>
       </form>
     </div>
@@ -300,6 +306,6 @@
     </div>
   </div>
 
-  <script src="/app.js?v=6"></script>
+  <script src="/app.js?v=7"></script>
 </body>
 </html>

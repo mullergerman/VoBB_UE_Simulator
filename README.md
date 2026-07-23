@@ -162,24 +162,32 @@ se queda con `:5060` y pjsua sale a través suyo: REGISTER, INVITE, ACK/BYE y el
 comparten un único flow. El relay se anuncia con su propio `Via` y `Record-Route` para que ni
 las respuestas ni los requests in-dialog de pjsua se escapen por su puerto interno (`:5070`).
 
-## Modelo de abonado
+## Perfiles y abonados
 
-Cada abonado configura: número de línea, **número corto (MT)**, dominio, P-CSCF
-(addr/port/transporte), usuario y password Digest (plano), realm, codecs (G.711 PCMU/PCMA),
-delay de alerting, eco on/off, expires del registro, **reg-event on/off + periodo**, y
-**headers SIP por procedimiento**. Los parámetros de red/comportamiento se pueden definir en un
-**Perfil** y heredarse; un abonado puede personalizarlos (se desvincula del perfil al editarlos).
+La config se organiza en dos niveles:
+
+- **Perfil** (vista *Perfiles* → editor dedicado): concentra **toda** la config de red
+  (dominio, P-CSCF addr/port/transporte, realm, registrar-URI), comportamiento (codecs G.711,
+  alerting, eco, reg-expires), **reg-event** (on/off + periodo) y los **mensajes SIP por
+  procedimiento** (headers de REGISTER/INVITE/SUBSCRIBE, editor de reglas con vista previa).
+- **Abonado** (modal): solo **identidad** — display name, línea (IMPU), **número corto (MT)**,
+  usuario/password Digest, habilitado — y **a qué perfil pertenece**. No edita parámetros de
+  red: los hereda del perfil.
+
+Detalles:
 
 - **Número corto (MT):** al originar, la sugerencia de destino usa el número corto del abonado
   si está definido (p.ej. `line_number=+541112341234`, `short_number=12341234`); si no, la línea.
-- **reg-event:** checkbox on/off por línea y periodo (Expires del SUBSCRIBE, base del refresh).
-  El refresh ocurre al 90% del Expires negociado, con piso `REG_EVENT_MIN_PERIOD` (30s por
-  defecto) para que un Expires chico no genere tormenta de SUBSCRIBE.
+- **reg-event:** on/off por perfil y periodo (Expires del SUBSCRIBE, base del refresh). El
+  refresh ocurre al 90% del Expires negociado, con piso `REG_EVENT_MIN_PERIOD` (30s por defecto)
+  para que un Expires chico no genere tormenta de SUBSCRIBE.
 
 ### Headers SIP por procedimiento (mini-DSL)
 
-Cada abonado/perfil puede llevar reglas de headers por procedimiento (REGISTER / INVITE /
-SUBSCRIBE). Vacío = headers por defecto (comportamiento histórico). Una regla por línea:
+Cada **perfil** lleva reglas de headers por procedimiento (REGISTER / INVITE / SUBSCRIBE),
+editables en el editor de perfil como filas estructuradas (operación · header · valor) con
+vista previa del mensaje resultante. Por detrás se serializan a un mini-DSL; vacío = headers por
+defecto (comportamiento histórico). Una regla por línea:
 
 ```
 Name: valor      # reemplaza el header Name (o lo agrega si no existía)
