@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>VoBB UE Simulator</title>
-  <link rel="stylesheet" href="/styles.css?v=7" />
+  <link rel="stylesheet" href="/styles.css?v=8" />
 </head>
 <body>
   <!-- ===== Pantalla de login ===== -->
@@ -25,9 +25,17 @@
     <aside id="sidebar" class="sidebar">
       <div class="brand"><span class="brand-mark">V</span><span class="brand-txt">VoBB <b>UE Sim</b></span></div>
       <nav id="nav" class="nav">
-        <a class="nav-item active" data-view="abonados" id="nav-abonados">
+        <a class="nav-item active" data-view="dashboard" id="nav-dashboard">
+          <svg viewBox="0 0 24 24" class="ico"><rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="5" rx="1.5"/><rect x="13" y="10" width="8" height="11" rx="1.5"/><rect x="3" y="13" width="8" height="8" rx="1.5"/></svg>
+          <span>Dashboard</span>
+        </a>
+        <a class="nav-item" data-view="abonados" id="nav-abonados">
           <svg viewBox="0 0 24 24" class="ico"><rect x="4" y="3" width="16" height="18" rx="2"/><line x1="9" y1="7" x2="15" y2="7"/><line x1="9" y1="11" x2="15" y2="11"/><line x1="9" y1="15" x2="13" y2="15"/></svg>
           <span>Abonados</span>
+        </a>
+        <a class="nav-item" data-view="llamadas" id="nav-llamadas">
+          <svg viewBox="0 0 24 24" class="ico"><path d="M4 5c0 9 6 15 15 15l0-4-4-2-2 2c-3-1.5-5-3.5-6.5-6.5l2-2-2-4z"/></svg>
+          <span>Llamadas</span>
         </a>
         <a class="nav-item" data-view="monitor" id="nav-monitor">
           <svg viewBox="0 0 24 24" class="ico"><polyline points="3,13 8,13 11,5 14,19 17,11 21,11"/></svg>
@@ -57,18 +65,55 @@
     <main class="main">
       <button id="btn-menu" class="menu-btn" title="Menú">☰</button>
 
+      <!-- ===== Vista: Dashboard ===== -->
+      <section id="view-dashboard" class="view">
+        <div class="view-head">
+          <h1>Dashboard</h1>
+          <span class="badge" id="mode-badge2"></span>
+        </div>
+
+        <div class="stats stats-6">
+          <div class="tile"><div class="v" id="stat-total">0</div><div class="l">Abonados</div></div>
+          <div class="tile"><div class="v ok" id="stat-reg">0</div><div class="l">Registrados</div></div>
+          <div class="tile"><div class="v" id="stat-unreg">0</div><div class="l">Sin registrar</div></div>
+          <div class="tile"><div class="v" id="stat-calls">0</div><div class="l">Llamadas activas</div></div>
+          <div class="tile"><div class="v" id="stat-asr">—</div><div class="l">ASR</div></div>
+          <div class="tile"><div class="v" id="stat-engine">—</div><div class="l">Motor SIP</div></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><h2>Control general</h2></div>
+          <div class="ctrl-bar">
+            <button id="btn-reg-all" class="primary">Registrar todos</button>
+            <button id="btn-unreg-all">Desregistrar todos</button>
+            <button id="btn-hangup-all2" class="danger">Colgar todas</button>
+            <span id="ctrl-status" class="ctrl-status"></span>
+          </div>
+          <p class="hint ctrl-hint">Al arrancar, las cuentas se crean pero <b>no</b> se registran (evita saturar el SBC). «Registrar todos» dispara los REGISTER de forma escalonada.</p>
+        </div>
+
+        <div class="dash-grid">
+          <div class="panel" id="net-panel">
+            <div class="panel-head"><h2>Estado de red</h2></div>
+            <div id="net-body" class="net-body"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><h2>Resumen de llamadas</h2></div>
+            <div class="mini-stats">
+              <div class="mini"><div class="v" id="d-total">0</div><div class="l">Total</div></div>
+              <div class="mini"><div class="v ok" id="d-answered">0</div><div class="l">Atendidas</div></div>
+              <div class="mini"><div class="v bad" id="d-failed">0</div><div class="l">Fallidas</div></div>
+              <div class="mini"><div class="v" id="d-acd">0s</div><div class="l">ACD</div></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <!-- ===== Vista: Abonados ===== -->
-      <section id="view-abonados" class="view">
+      <section id="view-abonados" class="view hidden">
         <div class="view-head">
           <h1>Abonados</h1>
           <button id="btn-new" class="primary">＋ Nuevo abonado</button>
-        </div>
-
-        <div class="stats">
-          <div class="tile"><div class="v" id="stat-total">0</div><div class="l">Abonados</div></div>
-          <div class="tile"><div class="v ok" id="stat-reg">0</div><div class="l">Registrados</div></div>
-          <div class="tile"><div class="v" id="stat-calls">0</div><div class="l">Llamadas activas</div></div>
-          <div class="tile"><div class="v" id="stat-engine">—</div><div class="l">Motor SIP</div></div>
         </div>
 
         <div class="panel">
@@ -101,6 +146,48 @@
                 </tr>
               </thead>
               <tbody id="abonados-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== Vista: Llamadas (estadísticas + histórico) ===== -->
+      <section id="view-llamadas" class="view hidden">
+        <div class="view-head">
+          <h1>Llamadas</h1>
+          <button id="btn-clear-history" class="small danger">Limpiar histórico</button>
+        </div>
+        <div class="stats stats-6">
+          <div class="tile"><div class="v" id="cs-total">0</div><div class="l">Total</div></div>
+          <div class="tile"><div class="v ok" id="cs-answered">0</div><div class="l">Atendidas</div></div>
+          <div class="tile"><div class="v bad" id="cs-failed">0</div><div class="l">Fallidas</div></div>
+          <div class="tile"><div class="v" id="cs-asr">—</div><div class="l">ASR</div></div>
+          <div class="tile"><div class="v" id="cs-acd">0s</div><div class="l">ACD</div></div>
+          <div class="tile"><div class="v" id="cs-active">0</div><div class="l">Activas</div></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Histórico</h2>
+            <div class="sig-controls">
+              <input id="hist-search" class="sig-search" type="text" placeholder="Filtrar (línea, remoto…)" />
+              <div class="seg" id="hist-dir-filter">
+                <button data-dir="all" class="active">Todas</button>
+                <button data-dir="MO">MO ↑</button>
+                <button data-dir="MT">MT ↓</button>
+              </div>
+              <div class="seg" id="hist-res-filter">
+                <button data-res="all" class="active">Todas</button>
+                <button data-res="answered">Atendidas</button>
+                <button data-res="failed">Fallidas</button>
+              </div>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table id="history-table">
+              <thead>
+                <tr><th>Inicio</th><th>Dir</th><th>Línea</th><th>Remoto</th><th>Resultado</th><th>Duración</th><th>RTP tx/rx</th><th>Loss</th><th>Jitter</th></tr>
+              </thead>
+              <tbody id="history-body"></tbody>
             </table>
           </div>
         </div>
@@ -306,6 +393,6 @@
     </div>
   </div>
 
-  <script src="/app.js?v=7"></script>
+  <script src="/app.js?v=8"></script>
 </body>
 </html>

@@ -39,6 +39,13 @@ DB_PATH = os.environ.get("DB_PATH", os.path.join(os.getcwd(), "data", "vobb.db")
 BIND_ADDR = os.environ.get("BIND_ADDR", "").strip()      # IP local explícita
 BIND_IFACE = os.environ.get("BIND_IFACE", "").strip()    # o nombre de interfaz
 
+# Registro escalonado. Al arrancar NO se registra ninguna cuenta (evita la
+# ráfaga de REGISTER que satura el SBC); el registro se dispara a mano desde el
+# Dashboard, espaciando cada REGISTER este tiempo (ms).
+REGISTER_STAGGER_MS = _int("REGISTER_STAGGER_MS", 200)
+# Retención del histórico de llamadas (registros más viejos se descartan).
+CALL_HISTORY_MAX = _int("CALL_HISTORY_MAX", 2000)
+
 # SIP / PJSUA2
 SIP_PORT = _int("SIP_PORT", 5060)            # puerto SIP local del endpoint
 SIP_TRANSPORT = os.environ.get("SIP_TRANSPORT", "udp").lower()

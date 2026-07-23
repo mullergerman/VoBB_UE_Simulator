@@ -13,6 +13,9 @@ const sipAll = [];            // log global de mensajes SIP (se filtra por abona
 const sipByCallId = {};       // call_id -> abonado_id (atribución por llamada activa)
 const rtpByAbonado = {};      // abonado_id -> { call_id -> stats }
 let detailAbonado = null;
+let lastNet = null;             // último status.net (solo admin)
+let callHistory = [];          // histórico de llamadas cargado (vista Llamadas)
+let histDir = "all", histRes = "all", histSearch = "";
 const MAX_SIP = 300;
 let sipFilterText = "";
 let sipFilterDir = "all";
@@ -52,6 +55,7 @@ async function loadAll() {
   if (currentUser && currentUser.is_admin) renderUsers();
   renderCallSelectors();
   renderDetailSelector();
+  refreshCallStats();
 }
 async function loadAbonados() { await loadAll(); }
 
@@ -64,7 +68,10 @@ function applyGating() {
   $("#btn-new-profile").style.display = can("manage_profiles") ? "" : "none";
   $("#btn-new").style.display = can("edit_abonados") ? "" : "none";
   const callable = can("control_calls");
-  for (const id of ["#btn-call", "#btn-hangup-all"]) $(id).style.display = callable ? "" : "none";
+  for (const id of ["#btn-call", "#btn-hangup-all", "#btn-reg-all", "#btn-unreg-all", "#btn-hangup-all2"])
+    $(id).style.display = callable ? "" : "none";
+  $("#btn-clear-history").style.display = admin ? "" : "none";
+  $("#net-panel").style.display = admin ? "" : "none";
   // Chip de usuario en la sidebar.
   const uc = $("#current-user");
   if (currentUser) {
@@ -76,10 +83,10 @@ function applyGating() {
 }
 
 // ---------------- Router de vistas ----------------
-const VIEWS = ["abonados", "monitor", "perfiles", "usuarios"];
-let currentView = "abonados";
+const VIEWS = ["dashboard", "abonados", "llamadas", "monitor", "perfiles", "usuarios"];
+let currentView = "dashboard";
 function showView(name) {
-  if (!VIEWS.includes(name)) name = "abonados";
+  if (!VIEWS.includes(name)) name = "dashboard";
   currentView = name;
   $("#view-perfil-edit").classList.add("hidden");   // el editor es un overlay aparte
   for (const v of VIEWS) {
@@ -88,15 +95,19 @@ function showView(name) {
   }
   if (location.hash !== "#/" + name) history.replaceState(null, "", "#/" + name);
   $("#app").classList.remove("nav-open");   // cerrar sidebar en móvil
+  if (name === "dashboard") { renderNetPanel(); refreshCallStats(); }
+  if (name === "llamadas") loadHistory();
 }
 
 // ---------------- Stat tiles ----------------
 function updateStats() {
   const reg = abonados.filter((a) => (regState[a.id] || {}).active).length;
   const active = Object.values(calls).filter((c) => c.state && c.state !== "DISCONNECTED").length;
-  $("#stat-total").textContent = abonados.length;
-  $("#stat-reg").textContent = reg;
-  $("#stat-calls").textContent = active;
+  const set = (id, v) => { const e = $(id); if (e) e.textContent = v; };
+  set("#stat-total", abonados.length);
+  set("#stat-reg", reg);
+  set("#stat-unreg", abonados.length - reg);
+  set("#stat-calls", active);
 }
 
 const profileById = (id) => profiles.find((p) => String(p.id) === String(id));
@@ -182,6 +193,93 @@ function renderProfiles() {
       grp.append(bEdit, bDel);
     } else grp.appendChild(el("span", "muted", "—"));
     act.appendChild(grp); tr.appendChild(act);
+    tb.appendChild(tr);
+  }
+}
+
+// ---------------- Dashboard ----------------
+function renderNetPanel() {
+  const box = $("#net-body"); if (!box) return;
+  const n = lastNet;
+  if (!n) { box.innerHTML = '<div class="net-row"><span class="k">—</span><span class="v muted">solo admin / sin datos</span></div>'; return; }
+  const ifaces = (n.local_addrs || []).map((a) => `${a.iface}=${a.ip}`).join(", ") || "—";
+  const relay = n.relay_running ? "activo" : (n.relay_enabled ? "no arrancó" : "off");
+  const rows = [
+    ["IP local", n.bind_ip || "(0.0.0.0)"],
+    ["Interfaces", ifaces],
+    ["SIP público", n.sip_public || "—"],
+    ["RTP público", n.rtp_public || "—"],
+    ["Relay", `${relay}${n.relay ? " · EXT " + (n.relay.ext || "?") : ""}`],
+    ["Upstream P-CSCF", (n.relay && n.relay.upstream) || "—"],
+  ];
+  box.innerHTML = "";
+  for (const [k, v] of rows) {
+    const row = el("div", "net-row");
+    row.appendChild(el("span", "k", k));
+    row.appendChild(el("span", "v mono", String(v)));
+    box.appendChild(row);
+  }
+}
+
+async function refreshCallStats() {
+  try {
+    const st = await api("GET", "/api/call-stats");
+    const set = (id, v) => { const e = $(id); if (e) e.textContent = v; };
+    // Dashboard
+    set("#stat-asr", st.total ? st.asr + "%" : "—");
+    set("#d-total", st.total); set("#d-answered", st.answered);
+    set("#d-failed", st.failed); set("#d-acd", st.acd + "s");
+    // Vista Llamadas
+    set("#cs-total", st.total); set("#cs-answered", st.answered);
+    set("#cs-failed", st.failed); set("#cs-asr", st.total ? st.asr + "%" : "—");
+    set("#cs-acd", st.acd + "s"); set("#cs-active", st.active);
+  } catch (e) { /* no autenticado / sin permiso: ignorar */ }
+}
+
+// ---------------- Llamadas (histórico) ----------------
+async function loadHistory() {
+  const qs = new URLSearchParams({ limit: "500" });
+  if (histDir !== "all") qs.set("direction", histDir);
+  if (histRes !== "all") qs.set("result", histRes);
+  try { callHistory = await api("GET", "/api/call-history?" + qs.toString()); }
+  catch (e) { callHistory = []; }
+  renderHistory();
+  refreshCallStats();
+}
+const fmtDateTime = (ms) => { const d = new Date(ms); return d.toLocaleDateString("es-AR") + " " + d.toLocaleTimeString("es-AR", { hour12: false }); };
+function codeClass(code) {
+  if (code >= 200 && code < 300) return "b-2xx";
+  if (code >= 300 && code < 400) return "b-3xx";
+  if (code >= 400 && code < 500) return "b-4xx";
+  if (code >= 500 && code < 600) return "b-5xx";
+  if (code >= 600) return "b-6xx";
+  return "b-req";
+}
+const fmtDur = (s) => { s = s || 0; const m = Math.floor(s / 60); return m ? `${m}m ${s % 60}s` : `${s}s`; };
+function renderHistory() {
+  const tb = $("#history-body"); if (!tb) return;
+  tb.innerHTML = "";
+  const q = histSearch;
+  const rows = callHistory.filter((r) => !q ||
+    (r.local_line || "").toLowerCase().includes(q) || (r.remote || "").toLowerCase().includes(q));
+  if (!rows.length) { tb.innerHTML = '<tr><td colspan="9" class="empty">Sin llamadas</td></tr>'; return; }
+  for (const r of rows) {
+    const tr = el("tr");
+    tr.appendChild(el("td", "mono", fmtDateTime(r.start_ms)));
+    const dirTd = el("td");
+    dirTd.appendChild(Object.assign(el("span", "dir-chip " + (r.direction === "MO" ? "tx" : "rx"), r.direction), {}));
+    tr.appendChild(dirTd);
+    tr.appendChild(el("td", "mono", r.local_line || "—"));
+    tr.appendChild(el("td", "mono", r.remote || "—"));
+    const resTd = el("td");
+    const badge = el("span", "badge-sip " + codeClass(r.last_code), (r.last_code || "—") + (r.answered ? "" : "") );
+    badge.title = r.reason || (r.answered ? "atendida" : "no atendida");
+    resTd.appendChild(badge);
+    tr.appendChild(resTd);
+    tr.appendChild(el("td", null, fmtDur(r.duration_s)));
+    tr.appendChild(el("td", "mono", `${r.tx_pkt || 0}/${r.rx_pkt || 0}`));
+    tr.appendChild(el("td", "mono", String(r.rx_loss || 0)));
+    tr.appendChild(el("td", "mono", ((r.rx_jitter_us || 0) / 1000).toFixed(1) + "ms"));
     tb.appendChild(tr);
   }
 }
@@ -394,8 +492,10 @@ function handleEvent(e) {
     case "status":
       $("#engine-status").textContent = e.available ? "motor SIP activo" : (e.reason || "motor SIP inactivo");
       $("#mode-badge").textContent = "modo: " + (e.mode || "?");
+      { const mb2 = $("#mode-badge2"); if (mb2) mb2.textContent = "modo: " + (e.mode || "?"); }
       $("#stat-engine").textContent = e.available ? "activo" : "inactivo";
       $("#stat-engine").classList.toggle("ok", !!e.available);
+      if (e.net) { lastNet = e.net; if (currentView === "dashboard") renderNetPanel(); }
       if (e.registrations) {
         for (const [aid, st] of Object.entries(e.registrations)) regState[aid] = st;
         renderAbonados();
@@ -431,6 +531,15 @@ function handleEvent(e) {
     case "rtp": {
       (rtpByAbonado[e.abonado_id] = rtpByAbonado[e.abonado_id] || {})[e.call_id] = e;
       if (String(e.abonado_id) === String(detailAbonado)) renderRtp();
+      break;
+    }
+    case "call_record": {
+      if (!e.replay) {
+        callHistory.unshift(e);
+        if (callHistory.length > 500) callHistory.pop();
+        if (currentView === "llamadas") renderHistory();
+        refreshCallStats();
+      }
       break;
     }
     case "log":
@@ -806,6 +915,38 @@ $("#btn-call").onclick = () => {
 $("#btn-hangup-all").onclick = () => api("POST", "/api/calls/hangup_all");
 $("#detail-select").onchange = (e) => { detailAbonado = e.target.value; renderDetail(); };
 
+// --- Dashboard: control general ---
+async function bulkReg(url, label) {
+  const st = $("#ctrl-status"); if (st) st.textContent = label + "…";
+  try {
+    const r = await api("POST", url);
+    if (st) st.textContent = `${label}: ${r.count} cuentas (escalonado)`;
+  } catch (e) { if (st) st.textContent = ""; }
+}
+$("#btn-reg-all").onclick = () => bulkReg("/api/registrations/register_all", "Registrando todos");
+$("#btn-unreg-all").onclick = () => bulkReg("/api/registrations/unregister_all", "Desregistrando todos");
+$("#btn-hangup-all2").onclick = () => api("POST", "/api/calls/hangup_all");
+
+// --- Vista Llamadas: filtros e histórico ---
+$("#btn-clear-history").onclick = async () => {
+  if (!confirm("¿Borrar todo el histórico de llamadas?")) return;
+  await api("DELETE", "/api/call-history");
+  callHistory = []; renderHistory(); refreshCallStats();
+};
+$("#hist-search").oninput = (e) => { histSearch = e.target.value.trim().toLowerCase(); renderHistory(); };
+$("#hist-dir-filter").onclick = (e) => {
+  const b = e.target.closest("button[data-dir]"); if (!b) return;
+  histDir = b.dataset.dir;
+  for (const btn of e.currentTarget.querySelectorAll("button")) btn.classList.toggle("active", btn === b);
+  loadHistory();
+};
+$("#hist-res-filter").onclick = (e) => {
+  const b = e.target.closest("button[data-res]"); if (!b) return;
+  histRes = b.dataset.res;
+  for (const btn of e.currentTarget.querySelectorAll("button")) btn.classList.toggle("active", btn === b);
+  loadHistory();
+};
+
 // --- Toolbar de señalización ---
 $("#sip-search").oninput = (e) => { sipFilterText = e.target.value.trim().toLowerCase(); renderSip(); };
 $("#sip-dir-filter").onclick = (e) => {
@@ -836,7 +977,7 @@ window.addEventListener("hashchange", () => {
 (function initRoute() {
   if (location.hash.startsWith("#token")) return;   // deep-link token: lo maneja bootstrap
   const name = (location.hash.match(/^#\/(\w+)/) || [])[1];
-  showView(name && VIEWS.includes(name) ? name : "abonados");
+  showView(name && VIEWS.includes(name) ? name : "dashboard");
 })();
 bootstrap();
 setInterval(() => { if (currentUser) renderCalls(); }, 2000);

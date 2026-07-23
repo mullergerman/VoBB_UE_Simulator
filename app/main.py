@@ -47,6 +47,14 @@ async def _startup():
     for ab in abonados:
         if ab.enabled:
             await asyncio.get_event_loop().run_in_executor(None, manager.add_account, ab)
+    # Las cuentas se crean pero NO se registran (evita la ráfaga que satura el
+    # SBC). El registro se dispara a mano/escalonado desde el Dashboard.
+    n = len([a for a in abonados if a.enabled])
+    if n:
+        print(f"[startup] {n} cuentas creadas SIN registrar; usá 'Registrar todos' "
+              f"en el Dashboard para registrarlas escalonadas.", flush=True)
+        bus.emit("log", level="info",
+                 msg=f"{n} cuentas listas (sin registrar). Registrá desde el Dashboard.")
 
 
 @app.on_event("shutdown")

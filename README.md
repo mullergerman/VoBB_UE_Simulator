@@ -138,6 +138,27 @@ SIP_DISABLED=1 .venv/bin/uvicorn app.main:app --port 8080
 | `SIP_RELAY` | `1` | relay SIP que unifica el flow de origen en `:5060`. `0` lo desactiva |
 | `REG_EVENT_SUBSCRIBE` | `1` en `ims` | master switch del reg-event; el on/off fino es por abonado/perfil |
 | `REG_EVENT_MIN_PERIOD` | `30` | piso (s) del refresh del SUBSCRIBE (evita tormenta si el Expires negociado es chico) |
+| `REGISTER_STAGGER_MS` | `200` | espaciado (ms) entre cada REGISTER en el registro en masa |
+| `CALL_HISTORY_MAX` | `2000` | tope de registros del histórico de llamadas (retención) |
+
+### Arranque sin ráfaga de registros
+
+Al levantar, las cuentas se **crean pero no se registran** (`registerOnAdd=False`): así se evita
+la ráfaga de REGISTER simultáneos que satura el SBC/P-CSCF. El registro se dispara **a mano**
+desde el **Dashboard** → *Registrar todos*, que emite los REGISTER **escalonados**
+(`REGISTER_STAGGER_MS` entre cada uno). También están *Desregistrar todos* y *Colgar todas*, y
+el botón por línea de siempre en la vista Abonados.
+
+### Vistas
+
+- **Dashboard** (principal): stat tiles (abonados, registrados, sin registrar, activas, ASR,
+  motor), control general (registrar/desregistrar/colgar en masa), estado de red (admin) y
+  resumen de llamadas.
+- **Abonados:** control de llamada (originar), llamadas activas y lista de abonados.
+- **Llamadas:** estadísticas (total, atendidas, fallidas, ASR, ACD, activas) e **histórico
+  persistente** (tabla `CallRecord` en SQLite, sobrevive reinicios) con filtros MO/MT y
+  atendida/fallida, RTP por llamada, y *Limpiar histórico* (admin).
+- **Monitor, Perfiles, Usuarios:** como antes.
 
 ### Una sola interfaz de salida
 

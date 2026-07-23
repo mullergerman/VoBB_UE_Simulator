@@ -64,9 +64,11 @@ if PJSUA_AVAILABLE:
             bus.emit("call", event="state", **snap)
             if ci.state == pj.PJSIP_INV_STATE_CONFIRMED:
                 self.manager._register_active_call(self)
+                self.manager._rec_answered(ci.callIdString)
             if ci.state == pj.PJSIP_INV_STATE_DISCONNECTED:
                 if self._answer_timer:
                     self._answer_timer.cancel()
+                self.manager._finalize_call_record(ci)
                 self.manager._remove_call(self)
 
         # -- media lista: montar el eco --
@@ -173,6 +175,12 @@ if PJSUA_AVAILABLE:
         def onIncomingCall(self, prm):
             call = _Call(self, self.manager, call_id=prm.callId, incoming=True)
             self.manager._track_call(call)
+            try:
+                ci = call.getInfo()
+                self.manager._rec_start(ci.callIdString, "MT", self.abonado_id,
+                                        self.line_number, ci.remoteUri)
+            except Exception:
+                pass
             # 180 Ringing inmediato, luego 200 OK tras el delay de alerting.
             try:
                 op = pj.CallOpParam()
@@ -203,6 +211,8 @@ class PjsuaManager:
         self._relay = None            # SipRelay (SIP_RELAY)
         self._sip_public = ""         # Via/Contact efectivo del transporte
         self._stats_warned = False    # para no repetir el error de stats RTP
+        self._rec: Dict[str, dict] = {}       # call_id -> registro en curso
+        self._last_rtp: Dict[str, dict] = {}  # call_id -> último RTP visto
         if not PJSUA_AVAILABLE:
             self._disabled_reason = f"pjsua2 no disponible: {_IMPORT_ERROR}"
         elif config.SIP_DISABLED:
@@ -482,6 +492,10 @@ class PjsuaManager:
             reg_uri = "sip:" + reg_uri
         cfg.regConfig.registrarUri = reg_uri or f"sip:{ab.domain}"
         cfg.regConfig.timeoutSec = ab.reg_expires
+        # NO registrar al crear la cuenta: al arrancar se crean todas las cuentas
+        # pero sin registrar (evita la ráfaga de REGISTER que satura el SBC). El
+        # registro se dispara a mano/escalonado (register_all / botón por línea).
+        cfg.regConfig.registerOnAdd = False
         # Outbound proxy. Con relay, pjsua sale hacia el relay (interno) y el
         # relay reenvía al P-CSCF real desde el flow :5060 (le fijamos el
         # upstream). Sin relay, apunta directo al P-CSCF como siempre.
@@ -549,6 +563,40 @@ class PjsuaManager:
                 print(f"[register] abonado {abonado_id}: {reason}", flush=True)
                 bus.emit("log", level="warn", msg=f"register {abonado_id}: {reason}")
 
+    def register_all(self, ids=None, renew: bool = True, stagger_ms=None) -> int:
+        """Registra (o desregistra) en masa, ESCALONADO en un thread de fondo,
+        para no saturar el SBC con una ráfaga de REGISTER. `ids` opcional limita
+        a un subconjunto (numeración del usuario). Devuelve cuántas cuentas se
+        van a procesar."""
+        if not self.available:
+            return 0
+        with self._lock:
+            targets = [aid for aid in self.accounts.keys()
+                       if ids is None or aid in set(ids)]
+        if not targets:
+            return 0
+        delay = (config.REGISTER_STAGGER_MS if stagger_ms is None else stagger_ms) / 1000.0
+        verb = "registrando" if renew else "desregistrando"
+
+        def _run():
+            self._ensure_thread()
+            for i, aid in enumerate(targets):
+                if not self._running:
+                    break
+                self.register(aid, renew=renew)
+                if i + 1 < len(targets) and delay > 0:
+                    time.sleep(delay)
+            bus.emit("log", level="info",
+                     msg=f"{verb} en masa: {len(targets)} cuentas (escalonado)")
+
+        bus.emit("log", level="info",
+                 msg=f"{verb} {len(targets)} cuentas, ~{int(delay*1000)}ms entre cada una")
+        threading.Thread(target=_run, daemon=True).start()
+        return len(targets)
+
+    def unregister_all(self, ids=None, stagger_ms=None) -> int:
+        return self.register_all(ids=ids, renew=False, stagger_ms=stagger_ms)
+
     # ---- llamadas ----
     def originate(self, from_id: int, to_number: str) -> Optional[str]:
         if not self.available:
@@ -597,7 +645,9 @@ class PjsuaManager:
         self._track_call(call)
         try:
             if call.getId() >= 0:
-                return call.getInfo().callIdString
+                cid = call.getInfo().callIdString
+                self._rec_start(cid, "MO", ab.id, ab.line_number, dest)
+                return cid
         except Exception:
             pass
         return None
@@ -640,6 +690,88 @@ class PjsuaManager:
                 self._call_state.pop(call_id, None)
             else:
                 self._call_state[call_id] = snap
+
+    # ---- histórico de llamadas (CallRecord) ----
+    def _rec_start(self, call_id: str, direction: str, abonado_id, line: str,
+                   remote: str) -> None:
+        if not call_id:
+            return
+        with self._lock:
+            if call_id in self._rec:
+                return
+            self._rec[call_id] = {
+                "direction": direction, "abonado_id": abonado_id,
+                "local_line": line or "", "remote": remote or "",
+                "start_ms": int(time.time() * 1000), "connect_ms": 0,
+                "answered": False,
+            }
+
+    def _rec_answered(self, call_id: str) -> None:
+        with self._lock:
+            r = self._rec.get(call_id)
+            if r and not r["answered"]:
+                r["answered"] = True
+                r["connect_ms"] = int(time.time() * 1000)
+
+    def _finalize_call_record(self, ci) -> None:
+        """Cierra el registro en curso y lo persiste. Corre en el thread de
+        pjsip: todo va en try/except para no tumbarlo por un problema de DB."""
+        try:
+            call_id = ci.callIdString
+        except Exception:
+            return
+        with self._lock:
+            r = self._rec.pop(call_id, None)
+            rtp = self._last_rtp.pop(call_id, None) or {}
+        if r is None:
+            return
+        end_ms = int(time.time() * 1000)
+        if not r["answered"]:
+            dur = 0                     # nunca atendida => sin conversación
+        else:
+            try:
+                dur = int(ci.connectDuration.sec)
+            except Exception:
+                dur = max(0, (end_ms - r["connect_ms"]) // 1000) if r["connect_ms"] else 0
+        try:
+            code = int(ci.lastStatusCode)
+        except Exception:
+            code = 0
+        reason = getattr(ci, "lastReason", "") or ""
+        try:
+            from .models import CallRecord
+            from .db import get_session
+            rec = CallRecord(
+                direction=r["direction"], abonado_id=r["abonado_id"],
+                local_line=r["local_line"], remote=r["remote"],
+                start_ms=r["start_ms"], connect_ms=r["connect_ms"], end_ms=end_ms,
+                duration_s=dur, answered=r["answered"], last_code=code, reason=reason,
+                tx_pkt=rtp.get("tx_pkt", 0), rx_pkt=rtp.get("rx_pkt", 0),
+                rx_loss=rtp.get("rx_loss", 0), rx_jitter_us=rtp.get("rx_jitter_us", 0),
+            )
+            with get_session() as s:
+                s.add(rec)
+                s.commit()
+                s.refresh(rec)
+                # Retención: descartar los más viejos del tope configurado.
+                self._prune_call_history(s)
+                payload = rec.model_dump()
+            bus.emit("call_record", **payload)
+        except Exception as e:  # pragma: no cover
+            print(f"[callrec] no se pudo persistir: {e}", flush=True)
+
+    def _prune_call_history(self, session) -> None:
+        try:
+            from sqlmodel import select, func
+            from .models import CallRecord
+            max_id = session.exec(select(func.max(CallRecord.id))).one()
+            if max_id and max_id > config.CALL_HISTORY_MAX:
+                cutoff = max_id - config.CALL_HISTORY_MAX
+                for rec in session.exec(select(CallRecord).where(CallRecord.id <= cutoff)).all():
+                    session.delete(rec)
+                session.commit()
+        except Exception:
+            pass
 
     # ---- tracking interno de llamadas ----
     def _track_call(self, call) -> None:
@@ -686,6 +818,12 @@ class PjsuaManager:
                 return
             ss = call.getStreamStat(0)
             rtcp = ss.rtcp
+            rx_jitter_us = int(getattr(rtcp.rxStat.jitterUsec, "mean", 0))
+            # Cachear el último RTP para volcarlo en el CallRecord al finalizar.
+            self._last_rtp[ci.callIdString] = {
+                "tx_pkt": rtcp.txStat.pkt, "rx_pkt": rtcp.rxStat.pkt,
+                "rx_loss": rtcp.rxStat.loss, "rx_jitter_us": rx_jitter_us,
+            }
             bus.emit(
                 "rtp",
                 abonado_id=call.account.abonado_id,
@@ -697,7 +835,7 @@ class PjsuaManager:
                 rx_bytes=rtcp.rxStat.bytes,
                 rx_loss=rtcp.rxStat.loss,
                 tx_loss=rtcp.txStat.loss,
-                rx_jitter_us=int(getattr(rtcp.rxStat.jitterUsec, "mean", 0)),
+                rx_jitter_us=rx_jitter_us,
                 duration_s=ci.connectDuration.sec,
             )
         except Exception as e:

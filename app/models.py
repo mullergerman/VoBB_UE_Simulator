@@ -137,6 +137,28 @@ class ProfileUpdate(SQLModel):
 
 
 # --------------------------------------------------------------------------
+# Histórico de llamadas (persistente). Se completa al finalizar cada llamada.
+# --------------------------------------------------------------------------
+class CallRecord(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    direction: str = "MO"            # MO (originada) | MT (terminada/entrante)
+    abonado_id: Optional[int] = Field(default=None, index=True)
+    local_line: str = Field(default="", index=True)  # línea del UE simulado
+    remote: str = ""                 # otra punta (destino marcado o remoteUri)
+    start_ms: int = 0                # inicio (epoch ms)
+    connect_ms: int = 0             # atendida (0 si nunca contestó)
+    end_ms: int = 0                 # fin (epoch ms)
+    duration_s: int = 0             # duración de la conversación (post-answer)
+    answered: bool = False
+    last_code: int = 0              # último status SIP (200/486/408/...)
+    reason: str = ""
+    tx_pkt: int = 0
+    rx_pkt: int = 0
+    rx_loss: int = 0
+    rx_jitter_us: int = 0
+
+
+# --------------------------------------------------------------------------
 # Usuarios (login + permisos) y su asignación de números/rangos.
 # --------------------------------------------------------------------------
 # Permisos disponibles para usuarios NO admin (el admin tiene todo + gestión

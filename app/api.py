@@ -4,7 +4,7 @@ import re
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
-from sqlmodel import select
+from sqlmodel import select, func
 
 from .auth import (
     CurrentUser, get_current_user, get_user_numbers, hash_password,
@@ -14,7 +14,7 @@ from .auth import (
 from .db import get_session, resolve_abonado
 from .events import bus
 from .models import (
-    SHARED_FIELDS, Abonado, AbonadoCreate, AbonadoUpdate,
+    SHARED_FIELDS, Abonado, AbonadoCreate, AbonadoUpdate, CallRecord,
     LoginRequest, Profile, ProfileCreate, ProfileUpdate,
     User, UserCreate, UserNumber, UserUpdate,
 )
@@ -324,6 +324,90 @@ def hangup_all(user: CurrentUser = Depends(require_perm("control_calls"))):
 
 
 # ==========================================================================
+# Registro en masa (escalonado) — control general del sistema
+# ==========================================================================
+def _allowed_abonado_ids(user: CurrentUser, s):
+    """None para admin (todas); si no, el set de ids cuya línea cae en la
+    numeración del usuario."""
+    if user.is_admin:
+        return None
+    ranges = _ranges(user, s)
+    return {ab.id for ab in s.exec(select(Abonado)).all()
+            if line_in_ranges(ab.line_number, ranges)}
+
+
+@router.post("/api/registrations/register_all")
+def register_all(user: CurrentUser = Depends(require_perm("control_calls"))):
+    with get_session() as s:
+        ids = _allowed_abonado_ids(user, s)
+    n = manager.register_all(ids=ids)
+    return {"ok": True, "count": n}
+
+
+@router.post("/api/registrations/unregister_all")
+def unregister_all(user: CurrentUser = Depends(require_perm("control_calls"))):
+    with get_session() as s:
+        ids = _allowed_abonado_ids(user, s)
+    n = manager.unregister_all(ids=ids)
+    return {"ok": True, "count": n}
+
+
+# ==========================================================================
+# Histórico y estadísticas de llamadas
+# ==========================================================================
+def _history_query(user: CurrentUser, s, direction=None, result=None):
+    stmt = select(CallRecord).order_by(CallRecord.id.desc())
+    if direction in ("MO", "MT"):
+        stmt = stmt.where(CallRecord.direction == direction)
+    if result == "answered":
+        stmt = stmt.where(CallRecord.answered == True)   # noqa: E712
+    elif result == "failed":
+        stmt = stmt.where(CallRecord.answered == False)  # noqa: E712
+    rows = s.exec(stmt).all()
+    if not user.is_admin:
+        ranges = _ranges(user, s)
+        rows = [r for r in rows if line_in_ranges(r.local_line, ranges)]
+    return rows
+
+
+@router.get("/api/call-history")
+def call_history(limit: int = 200, direction: Optional[str] = None,
+                 result: Optional[str] = None,
+                 user: CurrentUser = Depends(get_current_user)):
+    with get_session() as s:
+        rows = _history_query(user, s, direction, result)
+    limit = max(1, min(int(limit or 200), 2000))
+    return [r.model_dump() for r in rows[:limit]]
+
+
+@router.get("/api/call-stats")
+def call_stats(user: CurrentUser = Depends(get_current_user)):
+    with get_session() as s:
+        rows = _history_query(user, s)
+    total = len(rows)
+    answered = sum(1 for r in rows if r.answered)
+    failed = total - answered
+    durs = [r.duration_s for r in rows if r.answered]
+    acd = round(sum(durs) / len(durs), 1) if durs else 0
+    asr = round(100.0 * answered / total, 1) if total else 0
+    by_code = {}
+    for r in rows:
+        by_code[r.last_code] = by_code.get(r.last_code, 0) + 1
+    active = len(manager.status().get("calls") or [])
+    return {"total": total, "answered": answered, "failed": failed,
+            "asr": asr, "acd": acd, "active": active, "by_code": by_code}
+
+
+@router.delete("/api/call-history")
+def clear_history(user: CurrentUser = Depends(require_admin)):
+    with get_session() as s:
+        for r in s.exec(select(CallRecord)).all():
+            s.delete(r)
+        s.commit()
+    return {"ok": True}
+
+
+# ==========================================================================
 # Estado del motor
 # ==========================================================================
 @router.get("/api/status")
@@ -350,6 +434,8 @@ def _event_allowed(evt: dict, ranges) -> bool:
         return False                       # logs del motor: solo admin
     if t == "sip":
         return any(line_in_ranges(u, ranges) for u in _sip_lines(evt.get("raw", "")))
+    if t == "call_record":
+        return line_in_ranges(evt.get("local_line", ""), ranges)
     line = evt.get("line")
     if line is not None:
         return line_in_ranges(line, ranges)
