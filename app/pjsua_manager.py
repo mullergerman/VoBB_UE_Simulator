@@ -14,7 +14,7 @@ import threading
 import time
 from typing import Dict, List, Optional
 
-from . import config, netutil
+from . import config, netutil, sip_headers
 from .events import bus
 from .models import Abonado
 
@@ -523,10 +523,14 @@ class PjsuaManager:
         #   <sip:user@ip:port;transport=udp>
         cfg.regConfig.contactUriParams = f";transport={ab.transport}"
         # Headers típicos de un UE IMS en el REGISTER (igualan al equipo real).
-        for name, val in (
+        # El mini-DSL del abonado (hdr_register) puede agregar/reemplazar/quitar
+        # headers de extensión. Nota: Via/From/To/Call-ID/CSeq/Contact/Expires
+        # los genera pjsip y NO pasan por acá (limitación de PJSUA2).
+        base = [
             ("Supported", "100rel,replaces,timer,privacy,in-dialog"),
             ("Accept", "application/sdp,application/simservs+xml"),
-        ):
+        ]
+        for name, val in sip_headers.apply_to_headers(base, ab.hdr_register):
             h = pj.SipHeader()
             h.hName = name
             h.hValue = val
@@ -567,6 +571,19 @@ class PjsuaManager:
             dest = f"sip:{dest}@{ab.domain}"
         call = _Call(acc, self, incoming=False)
         prm = pj.CallOpParam(True)
+        # Headers de extensión customizables en el INVITE (mini-DSL hdr_invite).
+        # Solo headers de extensión: pjsip genera los core (Via/From/To/etc.).
+        rules = sip_headers.parse_rules(getattr(ab, "hdr_invite", "") or "")
+        add = [(op, n, v) for (op, n, v) in rules if op in ("set", "add")]
+        if add:
+            try:
+                for _op, name, val in add:
+                    h = pj.SipHeader()
+                    h.hName = name
+                    h.hValue = val
+                    prm.txOption.headers.append(h)
+            except Exception as e:  # pragma: no cover
+                bus.emit("log", level="warn", msg=f"hdr_invite no aplicado: {e}")
         try:
             call.makeCall(dest, prm)
         except Exception as e:

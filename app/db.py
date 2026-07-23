@@ -27,15 +27,31 @@ def _migrate() -> None:
     (volumen productivo) no tendrían las columnas agregadas después. Aquí las
     añadimos sin perder los abonados existentes.
     """
-    new_cols = {
+    abonado_cols = {
         "registrar_uri": "VARCHAR DEFAULT ''",
         "profile_id": "INTEGER",
+        "short_number": "VARCHAR DEFAULT ''",
+        "reg_event_enabled": "BOOLEAN DEFAULT 1",
+        "reg_event_expires": "INTEGER DEFAULT 600",
+        "hdr_register": "VARCHAR DEFAULT ''",
+        "hdr_invite": "VARCHAR DEFAULT ''",
+        "hdr_subscribe": "VARCHAR DEFAULT ''",
+    }
+    # Los campos compartidos nuevos también viven en el perfil (herencia).
+    profile_cols = {
+        "reg_event_enabled": "BOOLEAN DEFAULT 1",
+        "reg_event_expires": "INTEGER DEFAULT 600",
+        "hdr_register": "VARCHAR DEFAULT ''",
+        "hdr_invite": "VARCHAR DEFAULT ''",
+        "hdr_subscribe": "VARCHAR DEFAULT ''",
     }
     with engine.connect() as conn:
-        existing = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(abonado)").fetchall()}
-        for col, ddl in new_cols.items():
-            if col not in existing:
-                conn.exec_driver_sql(f"ALTER TABLE abonado ADD COLUMN {col} {ddl}")
+        for table, cols in (("abonado", abonado_cols), ("profile", profile_cols)):
+            existing = {row[1] for row in
+                        conn.exec_driver_sql(f"PRAGMA table_info({table})").fetchall()}
+            for col, ddl in cols.items():
+                if col not in existing:
+                    conn.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}")
         conn.commit()
 
 

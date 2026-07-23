@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>VoBB UE Simulator</title>
-  <link rel="stylesheet" href="/styles.css?v=5" />
+  <link rel="stylesheet" href="/styles.css?v=6" />
 </head>
 <body>
   <!-- ===== Pantalla de login ===== -->
@@ -190,6 +190,7 @@
         <div class="form-grid">
           <label>Display name<input name="display_name" /></label>
           <label>Línea (número / IMPU)<input name="line_number" required /></label>
+          <label>Número corto (MT)<input name="short_number" placeholder="ej. 12341234" /></label>
           <label>Auth user (IMPI)<input name="auth_user" /></label>
           <label>Password (plano)<input name="auth_password" /></label>
           <label class="chk">Habilitado<input name="enabled" type="checkbox" checked /></label>
@@ -210,6 +211,16 @@
             <label>Alerting (s)<input name="alerting_delay_s" type="number" value="3" /></label>
             <label>Reg expires<input name="reg_expires" type="number" value="600" /></label>
             <label class="chk">Eco<input name="echo_enabled" type="checkbox" checked /></label>
+            <label class="chk">reg-event (SUBSCRIBE)<input name="reg_event_enabled" type="checkbox" checked /></label>
+            <label>Periodo reg-event (s)<input name="reg_event_expires" type="number" value="600" /></label>
+          </div>
+          <div class="shared-sep">Headers SIP por procedimiento
+            <span class="hint">Vacío = por defecto. <code>Name: valor</code> reemplaza · <code>+Name: valor</code> agrega · <code>-Name</code> quita</span>
+          </div>
+          <div class="form-grid">
+            <label class="full">Headers REGISTER<textarea name="hdr_register" rows="3" placeholder="P-Access-Network-Info: 3GPP-E-UTRAN;utran-cell-id-3gpp=...&#10;-Supported"></textarea></label>
+            <label class="full">Headers INVITE<textarea name="hdr_invite" rows="3" placeholder="P-Preferred-Identity: <sip:+541112341234@ims.mnc.mcc.3gppnetwork.org>"></textarea></label>
+            <label class="full">Headers SUBSCRIBE<textarea name="hdr_subscribe" rows="3" placeholder="User-Agent: MiUA/1.0&#10;Expires: 1200"></textarea></label>
           </div>
         </div>
         <div class="modal-actions">
@@ -240,6 +251,16 @@
           <label>Alerting (s)<input name="alerting_delay_s" type="number" value="3" /></label>
           <label>Reg expires<input name="reg_expires" type="number" value="600" /></label>
           <label class="chk">Eco<input name="echo_enabled" type="checkbox" checked /></label>
+          <label class="chk">reg-event (SUBSCRIBE)<input name="reg_event_enabled" type="checkbox" checked /></label>
+          <label>Periodo reg-event (s)<input name="reg_event_expires" type="number" value="600" /></label>
+        </div>
+        <div class="shared-sep">Headers SIP por procedimiento
+          <span class="hint">Vacío = por defecto. <code>Name: valor</code> reemplaza · <code>+Name: valor</code> agrega · <code>-Name</code> quita</span>
+        </div>
+        <div class="form-grid">
+          <label class="full">Headers REGISTER<textarea name="hdr_register" rows="3" placeholder="P-Access-Network-Info: 3GPP-E-UTRAN;utran-cell-id-3gpp=...&#10;-Supported"></textarea></label>
+          <label class="full">Headers INVITE<textarea name="hdr_invite" rows="3" placeholder="P-Preferred-Identity: <sip:+541112341234@ims...>"></textarea></label>
+          <label class="full">Headers SUBSCRIBE<textarea name="hdr_subscribe" rows="3" placeholder="User-Agent: MiUA/1.0&#10;Expires: 1200"></textarea></label>
         </div>
         <div class="modal-actions">
           <button type="button" id="btn-cancel-profile">Cancelar</button>
@@ -279,6 +300,6 @@
     </div>
   </div>
 
-  <script src="/app.js?v=5"></script>
+  <script src="/app.js?v=6"></script>
 </body>
 </html>

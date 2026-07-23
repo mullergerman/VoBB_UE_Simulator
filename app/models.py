@@ -17,7 +17,8 @@ from sqlmodel import Field, SQLModel
 SHARED_FIELDS = [
     "domain", "pcscf_addr", "pcscf_port", "transport", "auth_realm",
     "registrar_uri", "codec_pref", "alerting_delay_s", "echo_enabled",
-    "reg_expires",
+    "reg_expires", "reg_event_enabled", "reg_event_expires",
+    "hdr_register", "hdr_invite", "hdr_subscribe",
 ]
 
 
@@ -25,6 +26,7 @@ class AbonadoBase(SQLModel):
     enabled: bool = True
     display_name: str = ""
     line_number: str = Field(index=True)          # user part del AOR, p.ej. "1001"
+    short_number: str = ""                        # numeración corta a marcar (MT)
     domain: str = "vobb.test"                     # home domain / realm
     pcscf_addr: str = "127.0.0.1"                 # dirección del P-CSCF / registrar
     pcscf_port: int = 5060
@@ -40,6 +42,14 @@ class AbonadoBase(SQLModel):
     alerting_delay_s: int = 3                     # segundos de 180 antes de atender
     echo_enabled: bool = True                     # devolver audio en modo eco
     reg_expires: int = 600                        # expires del REGISTER
+    # reg-event (RFC 3680): suscripción tras el REGISTER, por línea.
+    reg_event_enabled: bool = True                # emitir SUBSCRIBE Event: reg
+    reg_event_expires: int = 600                  # Expires del SUBSCRIBE / base refresh
+    # Customización de headers SIP por procedimiento (mini-DSL, ver
+    # app/sip_headers.py). Vacío => headers por defecto (comportamiento actual).
+    hdr_register: str = ""
+    hdr_invite: str = ""
+    hdr_subscribe: str = ""
     # Perfil del que hereda los campos compartidos (None => usa los propios).
     profile_id: Optional[int] = Field(default=None, index=True)
 
@@ -56,6 +66,7 @@ class AbonadoUpdate(SQLModel):
     enabled: Optional[bool] = None
     display_name: Optional[str] = None
     line_number: Optional[str] = None
+    short_number: Optional[str] = None
     domain: Optional[str] = None
     pcscf_addr: Optional[str] = None
     pcscf_port: Optional[int] = None
@@ -68,6 +79,11 @@ class AbonadoUpdate(SQLModel):
     alerting_delay_s: Optional[int] = None
     echo_enabled: Optional[bool] = None
     reg_expires: Optional[int] = None
+    reg_event_enabled: Optional[bool] = None
+    reg_event_expires: Optional[int] = None
+    hdr_register: Optional[str] = None
+    hdr_invite: Optional[str] = None
+    hdr_subscribe: Optional[str] = None
     profile_id: Optional[int] = None
 
 
@@ -86,6 +102,11 @@ class ProfileBase(SQLModel):
     alerting_delay_s: int = 3
     echo_enabled: bool = True
     reg_expires: int = 600
+    reg_event_enabled: bool = True
+    reg_event_expires: int = 600
+    hdr_register: str = ""
+    hdr_invite: str = ""
+    hdr_subscribe: str = ""
 
 
 class Profile(ProfileBase, table=True):
@@ -108,6 +129,11 @@ class ProfileUpdate(SQLModel):
     alerting_delay_s: Optional[int] = None
     echo_enabled: Optional[bool] = None
     reg_expires: Optional[int] = None
+    reg_event_enabled: Optional[bool] = None
+    reg_event_expires: Optional[int] = None
+    hdr_register: Optional[str] = None
+    hdr_invite: Optional[str] = None
+    hdr_subscribe: Optional[str] = None
 
 
 # --------------------------------------------------------------------------

@@ -59,6 +59,9 @@ MAX_CALLS = _int("MAX_CALLS", 500)
 REG_EVENT_SUBSCRIBE = _bool("REG_EVENT_SUBSCRIBE", MODE == "ims")
 REG_EVENT_PORT = _int("REG_EVENT_PORT", 0)
 REG_EVENT_EXPIRES = _int("REG_EVENT_EXPIRES", 600)
+# Piso del refresh del SUBSCRIBE: si el P-CSCF negocia un Expires chico, no
+# refrescar más seguido que esto (evita tormenta de SUBSCRIBE).
+REG_EVENT_MIN_PERIOD = _int("REG_EVENT_MIN_PERIOD", 30)
 
 # Relay/ALG SIP: un forwarder propio se queda con el puerto que ve el P-CSCF
 # (RELAY_PORT) y pjsua sale a través de él (proxy interno). Así TODO el tráfico

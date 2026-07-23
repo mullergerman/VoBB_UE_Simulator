@@ -136,7 +136,8 @@ SIP_DISABLED=1 .venv/bin/uvicorn app.main:app --port 8080
 | `BIND_IFACE` | — | alternativa a `BIND_ADDR`: nombre de interfaz (`ens192`) |
 | `MEDIA_PUBLIC_ADDR` | — | IP a anunciar en el SDP si hay NAT 1:1 delante |
 | `SIP_RELAY` | `1` | relay SIP que unifica el flow de origen en `:5060`. `0` lo desactiva |
-| `REG_EVENT_SUBSCRIBE` | `1` en `ims` | suscripción reg-event (RFC 3680) tras el REGISTER |
+| `REG_EVENT_SUBSCRIBE` | `1` en `ims` | master switch del reg-event; el on/off fino es por abonado/perfil |
+| `REG_EVENT_MIN_PERIOD` | `30` | piso (s) del refresh del SUBSCRIBE (evita tormenta si el Expires negociado es chico) |
 
 ### Una sola interfaz de salida
 
@@ -163,6 +164,32 @@ las respuestas ni los requests in-dialog de pjsua se escapen por su puerto inter
 
 ## Modelo de abonado
 
-Cada abonado configura: número de línea, dominio, P-CSCF (addr/port/transporte), usuario y
-password Digest (plano), realm, codecs (G.711 PCMU/PCMA), delay de alerting, eco on/off y
-expires del registro.
+Cada abonado configura: número de línea, **número corto (MT)**, dominio, P-CSCF
+(addr/port/transporte), usuario y password Digest (plano), realm, codecs (G.711 PCMU/PCMA),
+delay de alerting, eco on/off, expires del registro, **reg-event on/off + periodo**, y
+**headers SIP por procedimiento**. Los parámetros de red/comportamiento se pueden definir en un
+**Perfil** y heredarse; un abonado puede personalizarlos (se desvincula del perfil al editarlos).
+
+- **Número corto (MT):** al originar, la sugerencia de destino usa el número corto del abonado
+  si está definido (p.ej. `line_number=+541112341234`, `short_number=12341234`); si no, la línea.
+- **reg-event:** checkbox on/off por línea y periodo (Expires del SUBSCRIBE, base del refresh).
+  El refresh ocurre al 90% del Expires negociado, con piso `REG_EVENT_MIN_PERIOD` (30s por
+  defecto) para que un Expires chico no genere tormenta de SUBSCRIBE.
+
+### Headers SIP por procedimiento (mini-DSL)
+
+Cada abonado/perfil puede llevar reglas de headers por procedimiento (REGISTER / INVITE /
+SUBSCRIBE). Vacío = headers por defecto (comportamiento histórico). Una regla por línea:
+
+```
+Name: valor      # reemplaza el header Name (o lo agrega si no existía)
++Name: valor     # agrega OTRA instancia de Name (no reemplaza)
+-Name            # quita el header Name
+# comentario     # las líneas en blanco y las que empiezan con # se ignoran
+```
+
+Ejemplo (REGISTER de un UE LTE): `P-Access-Network-Info: 3GPP-E-UTRAN;utran-cell-id-3gpp=...`.
+Límite de PJSUA2: en REGISTER/INVITE solo se tocan headers de extensión (Via/From/To/Call-ID/
+CSeq/Contact/Expires los genera pjsip). En el SUBSCRIBE, que es un builder propio
+(`app/reg_subscribe.py`), se puede overridear cualquiera (incluido Expires, User-Agent, Event).
+Implementación en `app/sip_headers.py`.

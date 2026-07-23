@@ -31,6 +31,7 @@ from typing import Dict, List, Optional
 
 from . import config, netutil
 from .events import bus
+from .sip_headers import apply_to_headers
 
 _CALLID_RE = re.compile(r"^Call-ID:\s*(.+)$", re.IGNORECASE | re.MULTILINE)
 _CSEQ_RE = re.compile(r"^CSeq:\s*(\d+)\s+(\w+)", re.IGNORECASE | re.MULTILINE)
@@ -108,7 +109,11 @@ class _Sub:
         self.pcscf_addr = abonado.pcscf_addr
         self.pcscf_port = int(abonado.pcscf_port)
         self.transport = (abonado.transport or "udp").lower()
-        self.expires = int(config.REG_EVENT_EXPIRES or abonado.reg_expires or 600)
+        # Expires del SUBSCRIBE: el del abonado (efectivo, heredado del perfil)
+        # tiene prioridad; luego el global y el reg_expires como último recurso.
+        self.expires = int(getattr(abonado, "reg_event_expires", 0)
+                           or config.REG_EVENT_EXPIRES or abonado.reg_expires or 600)
+        self.hdr_subscribe = getattr(abonado, "hdr_subscribe", "") or ""
         self.call_id = secrets.token_hex(12) + "@vobb-reg"
         self.from_tag = secrets.token_hex(6)
         self.to_tag: Optional[str] = None
@@ -186,6 +191,11 @@ class RegEventSubscriber:
         """Arranca la suscripción del abonado si aún no está activa (idempotente)."""
         if not self._running or (self._relay is None and self._sock is None):
             return
+        # On/off por línea: si el abonado tiene el reg-event desactivado, cerrar
+        # cualquier suscripción existente y no crear una nueva.
+        if not getattr(abonado, "reg_event_enabled", True):
+            self.stop_for(abonado.id)
+            return
         with self._lock:
             existing = self._subs.get(abonado.id)
             if existing and not existing.terminated:
@@ -228,24 +238,28 @@ class RegEventSubscriber:
         sub.cseq += 1
         branch = "z9hG4bK" + secrets.token_hex(8)
         to = f"<{sub.aor}>" + (f";tag={sub.to_tag}" if sub.to_tag else "")
-        headers = [
-            f"SUBSCRIBE {sub.aor} SIP/2.0",
-            f"Via: SIP/2.0/{sub.transport.upper()} {sub.local_ip}:{sub.local_port};rport;branch={branch}",
-            "Max-Forwards: 70",
-            f"Route: <sip:{sub.pcscf_addr}:{sub.pcscf_port};lr>",
-            f"From: <{sub.aor}>;tag={sub.from_tag}",
-            f"To: {to}",
-            f"Call-ID: {sub.call_id}",
-            f"CSeq: {sub.cseq} SUBSCRIBE",
-            f"Contact: <sip:{sub.line}@{sub.local_ip}:{sub.local_port};transport={sub.transport}>",
-            "Event: reg",
-            "Accept: application/reginfo+xml",
-            f"Expires: {sub.expires}",
-            "User-Agent: VoBB-UE-Simulator",
+        request_line = f"SUBSCRIBE {sub.aor} SIP/2.0"
+        # Headers por defecto como pares (name, value); el mini-DSL del abonado
+        # puede agregar/reemplazar/quitar cualquiera (es un builder propio).
+        pairs = [
+            ("Via", f"SIP/2.0/{sub.transport.upper()} {sub.local_ip}:{sub.local_port};rport;branch={branch}"),
+            ("Max-Forwards", "70"),
+            ("Route", f"<sip:{sub.pcscf_addr}:{sub.pcscf_port};lr>"),
+            ("From", f"<{sub.aor}>;tag={sub.from_tag}"),
+            ("To", to),
+            ("Call-ID", sub.call_id),
+            ("CSeq", f"{sub.cseq} SUBSCRIBE"),
+            ("Contact", f"<sip:{sub.line}@{sub.local_ip}:{sub.local_port};transport={sub.transport}>"),
+            ("Event", "reg"),
+            ("Accept", "application/reginfo+xml"),
+            ("Expires", str(sub.expires)),
+            ("User-Agent", "VoBB-UE-Simulator"),
         ]
         if auth:
-            headers.append(f"{auth_header_name}: {auth}")
-        headers.append("Content-Length: 0")
+            pairs.append((auth_header_name, auth))
+        pairs = apply_to_headers(pairs, sub.hdr_subscribe)
+        pairs.append(("Content-Length", "0"))
+        headers = [request_line] + [f"{n}: {v}" for n, v in pairs]
         raw = "\r\n".join(headers) + "\r\n\r\n"
         self._send(raw, (sub.pcscf_addr, sub.pcscf_port))
 
@@ -364,7 +378,11 @@ class RegEventSubscriber:
             sub.timer.cancel()
         if sub.expires <= 0:
             return
-        delay = max(10, int(sub.expires * 0.9))
+        # Refresh al 90% del Expires, con piso configurable: si el P-CSCF
+        # negocia un Expires chico, no refrescar más seguido que el piso.
+        delay = max(int(config.REG_EVENT_MIN_PERIOD), int(sub.expires * 0.9))
+        print(f"[reg-event] {sub.line}: Expires negociado={sub.expires}s, "
+              f"próximo SUBSCRIBE en {delay}s", flush=True)
 
         def _refresh():
             with self._lock:

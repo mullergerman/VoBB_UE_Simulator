@@ -6,7 +6,7 @@ let currentUser = null;       // { id, username, is_admin, permissions, ... }
 let users = [];               // lista de usuarios (solo admin)
 let abonados = [];
 let profiles = [];            // perfiles (parámetros compartidos)
-const SHARED_FIELDS = ["domain","pcscf_addr","pcscf_port","transport","auth_realm","registrar_uri","codec_pref","alerting_delay_s","echo_enabled","reg_expires"];
+const SHARED_FIELDS = ["domain","pcscf_addr","pcscf_port","transport","auth_realm","registrar_uri","codec_pref","alerting_delay_s","echo_enabled","reg_expires","reg_event_enabled","reg_event_expires","hdr_register","hdr_invite","hdr_subscribe"];
 const regState = {};          // abonado_id -> {active, code, reason}
 const calls = {};             // call_id -> {line, remote, state, last_code, abonado_id}
 const sipAll = [];            // log global de mensajes SIP (se filtra por abonado al render)
@@ -193,13 +193,23 @@ function renderCallSelectors() {
     o.value = a.id; from.appendChild(o);
   }
   if (prevFrom) from.value = prevFrom;
-  // Destino: campo libre con sugerencias (número, num@dominio o sip:URI).
+  // Destino: campo libre con sugerencias. Se sugiere la numeración corta
+  // (short_number) si está definida; si no, la línea. num@dominio y sip:URI
+  // siguen siendo válidos escribiéndolos a mano.
   const dl = $("#call-to-list"); dl.innerHTML = "";
   for (const a of abonados) {
+    const dial = (a.short_number || "").trim() || a.line_number;
     const o = el("option");
-    o.value = a.line_number;
-    o.label = `${a.display_name || a.domain}`;
+    o.value = dial;
+    o.label = `${a.line_number} — ${a.display_name || a.domain}`;
     dl.appendChild(o);
+  }
+  // Prefill del destino con el primer corto distinto del origen (si está vacío).
+  const to = $("#call-to");
+  if (to && !to.value) {
+    const fromId = from.value;
+    const cand = abonados.find((a) => String(a.id) !== String(fromId));
+    if (cand) to.value = (cand.short_number || "").trim() || cand.line_number;
   }
 }
 
@@ -447,7 +457,7 @@ function sipRelevant(r, abId) {
 }
 
 // ---------------- Modal ABONADO ----------------
-const USER_FIELDS = ["display_name", "line_number", "auth_user", "auth_password", "enabled"];
+const USER_FIELDS = ["display_name", "line_number", "short_number", "auth_user", "auth_password", "enabled"];
 
 function fillProfileSelect() {
   const sel = $("#ab-profile"); sel.innerHTML = "";
