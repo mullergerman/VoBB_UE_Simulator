@@ -135,6 +135,7 @@ SIP_DISABLED=1 .venv/bin/uvicorn app.main:app --port 8080
 | `BIND_ADDR` | — | IP local para **todo** (SIP, RTP, relay, reg-event). Vacío: se autodetecta por la ruta al P-CSCF |
 | `BIND_IFACE` | — | alternativa a `BIND_ADDR`: nombre de interfaz (`ens192`) |
 | `MEDIA_PUBLIC_ADDR` | — | IP a anunciar en el SDP si hay NAT 1:1 delante |
+| `DIAL_TEL_URI` | `1` en `ims` | número suelto del MO como Tel URI (`tel:12341234`) en vez de `sip:num@dominio-del-MO`; en `local` va SIP URI |
 | `SIP_RELAY` | `1` | relay SIP que unifica el flow de origen en `:5060`. `0` lo desactiva |
 | `REG_EVENT_SUBSCRIBE` | `1` en `ims` | master switch del reg-event; el on/off fino es por abonado/perfil |
 | `REG_EVENT_MIN_PERIOD` | `30` | piso (s) del refresh del SUBSCRIBE (evita tormenta si el Expires negociado es chico) |
@@ -204,6 +205,12 @@ Detalles:
 
 - **Número corto (MT):** al originar, la sugerencia de destino usa el número corto del abonado
   si está definido (p.ej. `line_number=+541112341234`, `short_number=12341234`); si no, la línea.
+- **Discado del MO (Tel URI):** un destino que es sólo un número (sin esquema ni `@`) sale como
+  Tel URI (`tel:12341234`, RFC 3966) en modo `ims` — discado natural del usuario y sin atarlo al
+  home domain del origen, así el IMS puede enrutar a MTs de cualquier destino. Se puede forzar un
+  destino explícito escribiendo `num@dominio` (→ `sip:num@dominio`) o una URI `sip:`/`tel:`
+  completa. En modo `local` (Kamailio embebido, enruta por SIP URI) se mantiene `sip:num@dominio`.
+  Override con `DIAL_TEL_URI`.
 - **reg-event:** on/off por perfil y periodo (Expires del SUBSCRIBE, base del refresh). El
   refresh ocurre al 90% del Expires negociado, con piso `REG_EVENT_MIN_PERIOD` (30s por defecto)
   para que un Expires chico no genere tormenta de SUBSCRIBE.

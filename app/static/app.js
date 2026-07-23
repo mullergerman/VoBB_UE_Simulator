@@ -14,6 +14,7 @@ const sipByCallId = {};       // call_id -> abonado_id (atribución por llamada 
 const rtpByAbonado = {};      // abonado_id -> { call_id -> stats }
 let detailAbonado = null;
 let lastNet = null;             // último status.net (solo admin)
+let engineMode = "";            // "ims" | "local" (del status del motor)
 let callHistory = [];          // histórico de llamadas cargado (vista Llamadas)
 let histDir = "all", histRes = "all", histSearch = "";
 let statusSearch = "", provSearch = "";  // búsquedas de las tablas
@@ -564,6 +565,7 @@ function handleEvent(e) {
   switch (e.type) {
     case "status":
       $("#engine-status").textContent = e.available ? "motor SIP activo" : (e.reason || "motor SIP inactivo");
+      if (e.mode) engineMode = e.mode;
       $("#mode-badge").textContent = "modo: " + (e.mode || "?");
       { const mb2 = $("#mode-badge2"); if (mb2) mb2.textContent = "modo: " + (e.mode || "?"); }
       $("#stat-engine").textContent = e.available ? "activo" : "inactivo";
@@ -749,7 +751,7 @@ function previewBase(proc, f) {
   const tr = (f.elements.transport.value || "udp").toUpperCase();
   const exp = f.elements.reg_event_expires.value || "600";
   if (proc === "hdr_register") return { line: `REGISTER sip:${dom} SIP/2.0`, core: ["Via","Max-Forwards","From","To","Call-ID","CSeq","Contact","Expires","Authorization"], base: [["Supported","100rel,replaces,timer,privacy,in-dialog"],["Accept","application/sdp,application/simservs+xml"]] };
-  if (proc === "hdr_invite") return { line: `INVITE sip:<destino>@${dom} SIP/2.0`, core: ["Via","Max-Forwards","From","To","Call-ID","CSeq","Contact","Content-Type","Content-Length"], base: [] };
+  if (proc === "hdr_invite") { const rl = engineMode === "local" ? `INVITE sip:<destino>@${dom} SIP/2.0` : `INVITE tel:<destino> SIP/2.0`; return { line: rl, core: ["Via","Max-Forwards","From","To","Call-ID","CSeq","Contact","Content-Type","Content-Length"], base: [] }; }
   return { line: `SUBSCRIBE sip:<usuario>@${dom} SIP/2.0`, core: [], base: [["Via",`SIP/2.0/${tr} <ip>:5060;rport;branch=...`],["Max-Forwards","70"],["Route",`<sip:${pcscf}:${port};lr>`],["From","<sip:<usuario>@"+dom+">;tag=..."],["To","<sip:<usuario>@"+dom+">"],["Call-ID","...@vobb-reg"],["CSeq","1 SUBSCRIBE"],["Contact","<sip:<usuario>@<ip>:5060;transport="+(tr.toLowerCase())+">"],["Event","reg"],["Accept","application/reginfo+xml"],["Expires",exp],["User-Agent","VoBB-UE-Simulator"]] };
 }
 function renderPreview() {
@@ -985,7 +987,7 @@ $("#btn-cancel-user").onclick = closeUserModal;
 $("#btn-new-profile").onclick = () => openProfileEditor(null);
 $("#btn-call").onclick = async () => {
   const to = $("#call-to").value.trim();
-  if (!to) { toast("Ingresá un destino (número, num@dominio o sip:URI)", "error"); return; }
+  if (!to) { toast("Ingresá un destino (número, num@dominio o sip:/tel: URI)", "error"); return; }
   const from = $("#call-from");
   await api("POST", "/api/calls", { from_id: Number(from.value), to_number: to });
   const fromLine = (abonados.find((a) => String(a.id) === String(from.value)) || {}).line_number || "";

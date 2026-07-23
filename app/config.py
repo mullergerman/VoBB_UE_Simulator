@@ -53,6 +53,13 @@ RTP_PORT_START = _int("RTP_PORT_START", 4000)
 # IP a anunciar en el c= del SDP si difiere de la de bind (NAT 1:1). Vacío =>
 # se anuncia BIND_ADDR/la IP autodetectada.
 MEDIA_PUBLIC_ADDR = os.environ.get("MEDIA_PUBLIC_ADDR", "").strip()
+# Discado del MO originado desde la app. Un número suelto (sin esquema ni "@")
+# se envía como Tel URI (RFC 3966: "tel:12341234") en vez de atarlo al dominio
+# del propio origen ("sip:12341234@dominio-del-MO"). El Tel URI es el discado
+# natural del usuario y deja que el IMS enrute a MTs de cualquier destino (no
+# solo del home domain del MO). En modo "local" el Kamailio embebido enruta por
+# SIP URI, así que ahí se mantiene el SIP URI. Override con DIAL_TEL_URI=0/1.
+DIAL_TEL_URI = _bool("DIAL_TEL_URI", MODE == "ims")
 PJSUA_LOG_LEVEL = _int("PJSUA_LOG_LEVEL", 4)  # 4+ imprime mensajes SIP crudos
 # Tope de cuentas/llamadas simultáneas. Debe ser <= los límites compilados en
 # el Dockerfile (PJSUA_MAX_ACC/PJSUA_MAX_CALLS=512); dejamos margen.

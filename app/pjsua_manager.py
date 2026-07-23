@@ -607,14 +607,22 @@ class PjsuaManager:
         if acc is None:
             raise ValueError("Abonado origen no registrado en el motor SIP")
         ab = acc.abonado
-        # Destino flexible: número suelto => sip:<num>@<dominio-del-origen>;
-        # "num@host" => se le antepone sip:; una URI sip:/sips: se usa tal cual.
+        # Destino flexible:
+        #   - URI explícita (sip:/sips:/tel:) => se usa tal cual.
+        #   - "num@host"                       => se le antepone sip: (dominio fijo).
+        #   - número suelto                    => Tel URI ("tel:12341234") si
+        #     config.DIAL_TEL_URI (default en modo "ims"): discado natural del
+        #     usuario y enruta a MTs de cualquier destino, no solo al home domain
+        #     del MO. En modo "local" (Kamailio embebido enruta por SIP URI) se
+        #     mantiene "sip:<num>@<dominio-del-origen>".
         dest = (to_number or "").strip()
         low = dest.lower()
-        if low.startswith("sip:") or low.startswith("sips:"):
+        if low.startswith("sip:") or low.startswith("sips:") or low.startswith("tel:"):
             pass
         elif "@" in dest:
             dest = "sip:" + dest
+        elif config.DIAL_TEL_URI:
+            dest = "tel:" + dest
         else:
             dest = f"sip:{dest}@{ab.domain}"
         call = _Call(acc, self, incoming=False)
