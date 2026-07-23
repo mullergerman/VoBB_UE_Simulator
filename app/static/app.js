@@ -16,6 +16,7 @@ let detailAbonado = null;
 let lastNet = null;             // último status.net (solo admin)
 let callHistory = [];          // histórico de llamadas cargado (vista Llamadas)
 let histDir = "all", histRes = "all", histSearch = "";
+let statusSearch = "", provSearch = "";  // búsquedas de las tablas
 const MAX_SIP = 300;
 let sipFilterText = "";
 let sipFilterDir = "all";
@@ -26,6 +27,14 @@ let sipSeq = 0;
 // ---------------- Helpers ----------------
 const $ = (s) => document.querySelector(s);
 const el = (tag, cls, txt) => { const e = document.createElement(tag); if (cls) e.className = cls; if (txt != null) e.textContent = txt; return e; };
+// Notificaciones no bloqueantes (reemplazan alert() para feedback).
+function toast(msg, type = "info") {
+  const box = $("#toasts"); if (!box) return;
+  const t = el("div", "toast " + type, msg);
+  box.appendChild(t);
+  requestAnimationFrame(() => t.classList.add("show"));
+  setTimeout(() => { t.classList.remove("show"); setTimeout(() => t.remove(), 250); }, type === "error" ? 6000 : 3200);
+}
 async function api(method, url, body) {
   const headers = { "Content-Type": "application/json" };
   if (token) headers["Authorization"] = "Bearer " + token;
@@ -36,13 +45,20 @@ async function api(method, url, body) {
   if (!r.ok) {
     let msg = await r.text();
     try { msg = JSON.parse(msg).detail || msg; } catch (e) {}
-    alert("Error: " + msg); throw new Error(msg);
+    toast(msg, "error"); throw new Error(msg);
   }
   return r.status === 204 ? null : r.json().catch(() => null);
 }
 const can = (perm) => currentUser && (currentUser.is_admin || (currentUser.permissions || []).includes(perm));
 const fmtTime = (ms) => new Date(ms).toLocaleTimeString("es-AR", { hour12: false }) + "." + String(ms % 1000).padStart(3, "0");
 const now = () => fmtTime(Date.now());
+
+// Orden natural ascendente por línea (trata los dígitos como números, así
+// "1002" < "1010" y "+5411..." se ordena por su parte numérica).
+const _natKey = (s) => String(s || "").replace(/\D+/g, "").padStart(24, "0") + "|" + String(s || "");
+function sortedAbonados() {
+  return [...abonados].sort((a, b) => _natKey(a.line_number).localeCompare(_natKey(b.line_number)));
+}
 
 // ---------------- Carga inicial ----------------
 async function loadAll() {
@@ -51,7 +67,8 @@ async function loadAll() {
   if (currentUser && currentUser.is_admin) users = await api("GET", "/api/users");
   applyGating();
   renderProfiles();
-  renderAbonados();
+  renderStatus();
+  renderProvisioning();
   if (currentUser && currentUser.is_admin) renderUsers();
   renderCallSelectors();
   renderDetailSelector();
@@ -83,7 +100,7 @@ function applyGating() {
 }
 
 // ---------------- Router de vistas ----------------
-const VIEWS = ["dashboard", "abonados", "llamadas", "monitor", "perfiles", "usuarios"];
+const VIEWS = ["dashboard", "abonados", "llamadas", "trazas", "perfiles", "usuarios"];
 let currentView = "dashboard";
 function showView(name) {
   if (!VIEWS.includes(name)) name = "dashboard";
@@ -121,49 +138,94 @@ function effective(a) {
   return e;
 }
 
-function renderAbonados() {
-  const tb = $("#abonados-body");
+// Llamada activa (no desconectada) de un abonado, si la hay.
+function activeCallOf(abId) {
+  return Object.values(calls).find((c) => String(c.abonado_id) === String(abId) && c.state && c.state !== "DISCONNECTED");
+}
+
+// --- Dashboard: estado operativo de los abonados (live) ---
+function renderStatus() {
+  const tb = $("#status-body");
+  if (!tb) return;
+  const q = statusSearch;
+  let list = sortedAbonados();
+  if (q) list = list.filter((a) => (a.line_number + " " + (a.display_name || "") + " " + (profileById(a.profile_id) || {}).name).toLowerCase().includes(q));
+  const cnt = $("#status-count"); if (cnt) cnt.textContent = list.length;
   tb.innerHTML = "";
-  if (!abonados.length) { tb.innerHTML = '<tr><td colspan="10" class="empty">Sin abonados</td></tr>'; return; }
-  for (const a of abonados) {
-    const e = effective(a);
+  if (!list.length) { tb.innerHTML = '<tr><td colspan="6" class="empty">Sin abonados que coincidan</td></tr>'; return; }
+  for (const a of list) {
     const tr = el("tr");
     const rs = regState[a.id] || {};
     const dotCls = rs.active ? "ok" : (rs.code >= 400 ? "fail" : "pending");
-    const dotTitle = rs.active ? "Registrado" : (rs.reason ? `${rs.code} ${rs.reason}` : "No registrado");
-
-    const dotTd = el("td"); const dot = el("span", "reg-dot " + dotCls); dot.title = dotTitle; dotTd.appendChild(dot);
-    tr.appendChild(dotTd);
+    const dotTd = el("td"); const dot = el("span", "reg-dot " + dotCls);
+    dot.title = rs.active ? "Registrado" : (rs.reason ? `${rs.code} ${rs.reason}` : "No registrado");
+    dotTd.appendChild(dot); tr.appendChild(dotTd);
     tr.appendChild(el("td", "mono", a.line_number));
-    const pf = a.profile_id != null ? profileById(a.profile_id) : null;
-    const pfTd = el("td");
-    pfTd.appendChild(el("span", "profile-pill" + (pf ? "" : " none"), pf ? pf.name : "personalizado"));
-    tr.appendChild(pfTd);
-    tr.appendChild(el("td", "mono", e.domain));
-    tr.appendChild(el("td", "mono", `${e.pcscf_addr}:${e.pcscf_port}/${e.transport}`));
-    tr.appendChild(el("td", "mono", a.auth_user || a.line_number));
-    tr.appendChild(el("td", "mono", a.auth_password));
-    tr.appendChild(el("td", null, e.alerting_delay_s + "s"));
-    tr.appendChild(el("td", null, e.echo_enabled ? "sí" : "no"));
-
-    const act = el("td", "col-actions");
-    const grp = el("div", "row-actions");
+    const pf = profileById(a.profile_id);
+    const pfTd = el("td"); pfTd.appendChild(el("span", "profile-pill" + (pf ? "" : " none"), pf ? pf.name : "personalizado")); tr.appendChild(pfTd);
+    const regTd = el("td", "mono");
+    regTd.textContent = rs.active ? "activo" : (rs.code ? `${rs.code} ${rs.reason || ""}`.trim() : "—");
+    tr.appendChild(regTd);
+    const ac = activeCallOf(a.id);
+    const cTd = el("td");
+    if (ac) cTd.appendChild(el("span", "state-badge state-" + ac.state, ac.state)); else cTd.appendChild(el("span", "muted", "—"));
+    tr.appendChild(cTd);
+    const act = el("td", "col-actions"); const grp = el("div", "row-actions");
     if (can("edit_abonados") || can("control_calls")) {
       const bReg = el("button", "small" + (rs.active ? " danger" : ""), rs.active ? "Unreg" : "Reg");
-      bReg.onclick = () => api("POST", `/api/abonados/${a.id}/${rs.active ? "unregister" : "register"}`);
+      bReg.onclick = () => api("POST", `/api/abonados/${a.id}/${rs.active ? "unregister" : "register"}`)
+        .then(() => toast((rs.active ? "Desregistrando " : "Registrando ") + a.line_number));
       grp.appendChild(bReg);
     }
-    if (can("edit_abonados")) {
-      const bEdit = el("button", "small", "Editar"); bEdit.onclick = () => openModal(a);
-      const bDel = el("button", "small danger", "Eliminar"); bDel.onclick = () => { if (confirm("¿Borrar abonado " + a.line_number + "?")) api("DELETE", `/api/abonados/${a.id}`).then(loadAll); };
-      grp.append(bEdit, bDel);
+    if (can("control_calls")) {
+      const bCall = el("button", "small", "☏ Llamar desde");
+      bCall.onclick = () => callFrom(a.id);
+      grp.appendChild(bCall);
     }
     if (!grp.children.length) grp.appendChild(el("span", "muted", "—"));
-    act.appendChild(grp);
-    tr.appendChild(act);
+    act.appendChild(grp); tr.appendChild(act);
     tb.appendChild(tr);
   }
   updateStats();
+}
+
+// --- Abonados: provisión / configuración (sin estado en vivo) ---
+function renderProvisioning() {
+  const tb = $("#abonados-body");
+  if (!tb) return;
+  const q = provSearch;
+  let list = sortedAbonados();
+  if (q) list = list.filter((a) => (a.line_number + " " + (a.short_number || "") + " " + (a.display_name || "") + " " + (profileById(a.profile_id) || {}).name).toLowerCase().includes(q));
+  const cnt = $("#prov-count"); if (cnt) cnt.textContent = list.length;
+  tb.innerHTML = "";
+  if (!list.length) {
+    tb.innerHTML = abonados.length
+      ? '<tr><td colspan="9" class="empty">Sin abonados que coincidan</td></tr>'
+      : '<tr><td colspan="9" class="empty">Sin abonados. Creá uno con «＋ Nuevo abonado».</td></tr>';
+    return;
+  }
+  for (const a of list) {
+    const e = effective(a);
+    const tr = el("tr");
+    tr.appendChild(el("td", "mono", a.line_number));
+    tr.appendChild(el("td", "mono", a.short_number || "—"));
+    tr.appendChild(el("td", null, a.display_name || "—"));
+    const pf = profileById(a.profile_id);
+    const pfTd = el("td"); pfTd.appendChild(el("span", "profile-pill" + (pf ? "" : " none"), pf ? pf.name : "personalizado")); tr.appendChild(pfTd);
+    tr.appendChild(el("td", "mono", a.auth_user || a.line_number));
+    tr.appendChild(el("td", "mono", e.domain));
+    tr.appendChild(el("td", "mono", `${e.pcscf_addr}:${e.pcscf_port}/${e.transport}`));
+    const enTd = el("td"); enTd.appendChild(el("span", "chip-flag " + (a.enabled ? "on" : "off"), a.enabled ? "sí" : "no")); tr.appendChild(enTd);
+    const act = el("td", "col-actions"); const grp = el("div", "row-actions");
+    if (can("edit_abonados")) {
+      const bEdit = el("button", "small", "Editar"); bEdit.onclick = () => openModal(a);
+      const bDel = el("button", "small danger", "Eliminar");
+      bDel.onclick = () => { if (confirm("¿Borrar abonado " + a.line_number + "?")) api("DELETE", `/api/abonados/${a.id}`).then(() => { toast("Abonado " + a.line_number + " eliminado"); loadAll(); }); };
+      grp.append(bEdit, bDel);
+    } else grp.appendChild(el("span", "muted", "—"));
+    act.appendChild(grp); tr.appendChild(act);
+    tb.appendChild(tr);
+  }
 }
 
 function renderProfiles() {
@@ -188,7 +250,7 @@ function renderProfiles() {
       const bDel = el("button", "small danger", "Eliminar");
       bDel.onclick = () => {
         const msg = used ? `El perfil "${p.name}" lo usan ${used} abonado(s). Se desvincularán (conservando esta config). ¿Continuar?` : `¿Borrar perfil "${p.name}"?`;
-        if (confirm(msg)) api("DELETE", `/api/profiles/${p.id}`).then(loadAll);
+        if (confirm(msg)) api("DELETE", `/api/profiles/${p.id}`).then(() => { toast(`Perfil "${p.name}" eliminado`); loadAll(); });
       };
       grp.append(bEdit, bDel);
     } else grp.appendChild(el("span", "muted", "—"));
@@ -285,18 +347,20 @@ function renderHistory() {
 }
 
 function renderCallSelectors() {
-  // Origen: selector de abonados registrables (id como valor).
+  const list = sortedAbonados();
+  // Origen: cualquier abonado (id como valor); se marca si no está registrado.
   const from = $("#call-from"); const prevFrom = from.value; from.innerHTML = "";
-  for (const a of abonados) {
-    const o = el("option", null, `${a.line_number} — ${a.display_name || a.domain}`);
+  for (const a of list) {
+    const reg = (regState[a.id] || {}).active ? "" : " (sin registrar)";
+    const o = el("option", null, `${a.line_number} — ${a.display_name || a.domain}${reg}`);
     o.value = a.id; from.appendChild(o);
   }
   if (prevFrom) from.value = prevFrom;
-  // Destino: campo libre con sugerencias. Se sugiere la numeración corta
-  // (short_number) si está definida; si no, la línea. num@dominio y sip:URI
-  // siguen siendo válidos escribiéndolos a mano.
+  // Destino: campo libre con sugerencias (número corto de cada abonado). Permite
+  // todas las combinaciones: cualquier origen → cualquier destino, num@dominio o
+  // sip:URI a mano.
   const dl = $("#call-to-list"); dl.innerHTML = "";
-  for (const a of abonados) {
+  for (const a of list) {
     const dial = (a.short_number || "").trim() || a.line_number;
     const o = el("option");
     o.value = dial;
@@ -307,14 +371,23 @@ function renderCallSelectors() {
   const to = $("#call-to");
   if (to && !to.value) {
     const fromId = from.value;
-    const cand = abonados.find((a) => String(a.id) !== String(fromId));
+    const cand = list.find((a) => String(a.id) !== String(fromId));
     if (cand) to.value = (cand.short_number || "").trim() || cand.line_number;
   }
 }
 
+// Atajo «Llamar desde» del dashboard: va a Llamadas con ese origen preseleccionado.
+function callFrom(abId) {
+  showView("llamadas");
+  const from = $("#call-from");
+  if (from) from.value = String(abId);
+  const to = $("#call-to");
+  if (to) { to.value = ""; renderCallSelectors(); to.focus(); }
+}
+
 function renderDetailSelector() {
   const sel = $("#detail-select"); const prev = sel.value; sel.innerHTML = "";
-  for (const a of abonados) {
+  for (const a of sortedAbonados()) {
     const o = el("option", null, `${a.line_number} — ${a.display_name || a.domain}`);
     o.value = a.id; sel.appendChild(o);
   }
@@ -498,7 +571,7 @@ function handleEvent(e) {
       if (e.net) { lastNet = e.net; if (currentView === "dashboard") renderNetPanel(); }
       if (e.registrations) {
         for (const [aid, st] of Object.entries(e.registrations)) regState[aid] = st;
-        renderAbonados();
+        renderStatus(); renderCallSelectors();
       }
       if (e.calls) {
         for (const c of e.calls) {
@@ -509,7 +582,7 @@ function handleEvent(e) {
       break;
     case "register":
       regState[e.abonado_id] = { active: e.active, code: e.code, reason: e.reason };
-      renderAbonados();
+      renderStatus(); renderCallSelectors();
       break;
     case "sip": {
       pushSip(parseSip(e));
@@ -521,10 +594,10 @@ function handleEvent(e) {
         if (e.call_id) sipByCallId[e.call_id] = e.abonado_id;
         calls[e.call_id] = { line: e.line, remote: e.remote, state: e.state, last_code: e.last_code, abonado_id: e.abonado_id };
         if (e.state === "DISCONNECTED") {
-          setTimeout(() => { delete calls[e.call_id]; renderCalls(); }, 4000);
+          setTimeout(() => { delete calls[e.call_id]; renderCalls(); renderStatus(); }, 4000);
           if (rtpByAbonado[e.abonado_id]) delete rtpByAbonado[e.abonado_id][e.call_id];
         }
-        renderCalls(); renderRtp();
+        renderCalls(); renderRtp(); renderStatus();
       }
       break;
     }
@@ -616,9 +689,10 @@ $("#abonado-form").onsubmit = async (ev) => {
   }
   const id = data.id; delete data.id;
   data.profile_id = data.profile_id ? Number(data.profile_id) : null;
-  if (data.profile_id == null) { alert("Elegí un perfil para el abonado."); return; }
+  if (data.profile_id == null) { toast("Elegí un perfil para el abonado.", "error"); return; }
   if (id) await api("PUT", "/api/abonados/" + id, data);
   else await api("POST", "/api/abonados", data);
+  toast("Abonado " + (data.line_number || "") + " guardado", "ok");
   closeModal();
   await loadAll();
 };
@@ -756,6 +830,7 @@ async function saveProfile() {
   const id = f.elements.id.value;
   if (id) await api("PUT", "/api/profiles/" + id, data);
   else await api("POST", "/api/profiles", data);
+  toast("Perfil guardado", "ok");
   closeProfileEditor();
   await loadAll();
 }
@@ -845,9 +920,10 @@ $("#user-form").onsubmit = async (ev) => {
   const id = f.elements.id.value;
   if (id) await api("PUT", "/api/users/" + id, data);
   else {
-    if (!pwd) { alert("La contraseña es obligatoria para un usuario nuevo"); return; }
+    if (!pwd) { toast("La contraseña es obligatoria para un usuario nuevo", "error"); return; }
     await api("POST", "/api/users", data);
   }
+  toast("Usuario guardado", "ok");
   closeUserModal();
   await loadAll();
 };
@@ -907,12 +983,15 @@ $("#btn-cancel").onclick = closeModal;
 $("#btn-new-user").onclick = () => openUserModal(null);
 $("#btn-cancel-user").onclick = closeUserModal;
 $("#btn-new-profile").onclick = () => openProfileEditor(null);
-$("#btn-call").onclick = () => {
+$("#btn-call").onclick = async () => {
   const to = $("#call-to").value.trim();
-  if (!to) { alert("Ingresá un destino (número, num@dominio o sip:URI)"); return; }
-  api("POST", "/api/calls", { from_id: Number($("#call-from").value), to_number: to });
+  if (!to) { toast("Ingresá un destino (número, num@dominio o sip:URI)", "error"); return; }
+  const from = $("#call-from");
+  await api("POST", "/api/calls", { from_id: Number(from.value), to_number: to });
+  const fromLine = (abonados.find((a) => String(a.id) === String(from.value)) || {}).line_number || "";
+  toast(`Llamando ${fromLine} → ${to}`, "ok");
 };
-$("#btn-hangup-all").onclick = () => api("POST", "/api/calls/hangup_all");
+$("#btn-hangup-all").onclick = () => api("POST", "/api/calls/hangup_all").then(() => toast("Colgando todas las llamadas"));
 $("#detail-select").onchange = (e) => { detailAbonado = e.target.value; renderDetail(); };
 
 // --- Dashboard: control general ---
@@ -921,17 +1000,23 @@ async function bulkReg(url, label) {
   try {
     const r = await api("POST", url);
     if (st) st.textContent = `${label}: ${r.count} cuentas (escalonado)`;
+    toast(`${label}: ${r.count} cuentas (escalonado)`, "ok");
   } catch (e) { if (st) st.textContent = ""; }
 }
 $("#btn-reg-all").onclick = () => bulkReg("/api/registrations/register_all", "Registrando todos");
 $("#btn-unreg-all").onclick = () => bulkReg("/api/registrations/unregister_all", "Desregistrando todos");
-$("#btn-hangup-all2").onclick = () => api("POST", "/api/calls/hangup_all");
+$("#btn-hangup-all2").onclick = () => api("POST", "/api/calls/hangup_all").then(() => toast("Colgando todas las llamadas"));
+
+// --- Búsquedas de las tablas ---
+$("#status-search").oninput = (e) => { statusSearch = e.target.value.trim().toLowerCase(); renderStatus(); };
+$("#prov-search").oninput = (e) => { provSearch = e.target.value.trim().toLowerCase(); renderProvisioning(); };
 
 // --- Vista Llamadas: filtros e histórico ---
 $("#btn-clear-history").onclick = async () => {
   if (!confirm("¿Borrar todo el histórico de llamadas?")) return;
   await api("DELETE", "/api/call-history");
   callHistory = []; renderHistory(); refreshCallStats();
+  toast("Histórico borrado", "ok");
 };
 $("#hist-search").oninput = (e) => { histSearch = e.target.value.trim().toLowerCase(); renderHistory(); };
 $("#hist-dir-filter").onclick = (e) => {

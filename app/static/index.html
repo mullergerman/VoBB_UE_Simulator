@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>VoBB UE Simulator</title>
-  <link rel="stylesheet" href="/styles.css?v=8" />
+  <link rel="stylesheet" href="/styles.css?v=9" />
 </head>
 <body>
   <!-- ===== Pantalla de login ===== -->
@@ -37,9 +37,9 @@
           <svg viewBox="0 0 24 24" class="ico"><path d="M4 5c0 9 6 15 15 15l0-4-4-2-2 2c-3-1.5-5-3.5-6.5-6.5l2-2-2-4z"/></svg>
           <span>Llamadas</span>
         </a>
-        <a class="nav-item" data-view="monitor" id="nav-monitor">
+        <a class="nav-item" data-view="trazas" id="nav-trazas">
           <svg viewBox="0 0 24 24" class="ico"><polyline points="3,13 8,13 11,5 14,19 17,11 21,11"/></svg>
-          <span>Monitor</span>
+          <span>Trazas</span>
         </a>
         <a class="nav-item" data-view="perfiles" id="nav-perfiles">
           <svg viewBox="0 0 24 24" class="ico"><rect x="4" y="4" width="16" height="6" rx="1.5"/><rect x="4" y="14" width="16" height="6" rx="1.5"/></svg>
@@ -92,6 +92,28 @@
           <p class="hint ctrl-hint">Al arrancar, las cuentas se crean pero <b>no</b> se registran (evita saturar el SBC). «Registrar todos» dispara los REGISTER de forma escalonada.</p>
         </div>
 
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Estado de abonados <span id="status-count" class="count-pill">0</span></h2>
+            <div class="head-right">
+              <div class="legend">
+                <span class="lg"><span class="reg-dot ok"></span>Registrado</span>
+                <span class="lg"><span class="reg-dot fail"></span>Fallido</span>
+                <span class="lg"><span class="reg-dot pending"></span>Sin registrar</span>
+              </div>
+              <input id="status-search" class="sig-search" type="text" placeholder="Buscar línea / perfil…" />
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table id="status-table">
+              <thead>
+                <tr><th>Estado</th><th>Línea</th><th>Perfil</th><th>Registro</th><th>En llamada</th><th class="col-actions">Acciones</th></tr>
+              </thead>
+              <tbody id="status-body"></tbody>
+            </table>
+          </div>
+        </div>
+
         <div class="dash-grid">
           <div class="panel" id="net-panel">
             <div class="panel-head"><h2>Estado de red</h2></div>
@@ -109,11 +131,36 @@
         </div>
       </section>
 
-      <!-- ===== Vista: Abonados ===== -->
+      <!-- ===== Vista: Abonados (provisión / configuración) ===== -->
       <section id="view-abonados" class="view hidden">
         <div class="view-head">
           <h1>Abonados</h1>
           <button id="btn-new" class="primary">＋ Nuevo abonado</button>
+        </div>
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Provisión <span id="prov-count" class="count-pill">0</span></h2>
+            <input id="prov-search" class="sig-search" type="text" placeholder="Buscar línea / display / perfil…" />
+          </div>
+          <div class="table-wrap">
+            <table id="abonados-table">
+              <thead>
+                <tr>
+                  <th>Línea</th><th>Nº corto</th><th>Display</th><th>Perfil</th>
+                  <th>Auth user</th><th>Dominio</th><th>P-CSCF</th><th>Habilitado</th><th class="col-actions">Acciones</th>
+                </tr>
+              </thead>
+              <tbody id="abonados-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== Vista: Llamadas (control + estadísticas + histórico) ===== -->
+      <section id="view-llamadas" class="view hidden">
+        <div class="view-head">
+          <h1>Llamadas</h1>
+          <button id="btn-clear-history" class="small danger">Limpiar histórico</button>
         </div>
 
         <div class="panel">
@@ -122,7 +169,7 @@
             <label>Origen<select id="call-from"></select></label>
             <span class="arrow">→</span>
             <label>Destino<input id="call-to" list="call-to-list" autocomplete="off"
-              placeholder="número, num@dominio o sip:URI" /></label>
+              placeholder="número corto, num@dominio o sip:URI" /></label>
             <datalist id="call-to-list"></datalist>
             <button id="btn-call" class="primary">Llamar</button>
             <button id="btn-hangup-all" class="danger">Colgar todas</button>
@@ -135,28 +182,6 @@
           </div>
         </div>
 
-        <div class="panel">
-          <div class="panel-head"><h2>Lista de abonados</h2></div>
-          <div class="table-wrap">
-            <table id="abonados-table">
-              <thead>
-                <tr>
-                  <th>Reg</th><th>Línea</th><th>Perfil</th><th>Dominio</th><th>P-CSCF</th>
-                  <th>Usuario</th><th>Password</th><th>Alert</th><th>Eco</th><th class="col-actions">Acciones</th>
-                </tr>
-              </thead>
-              <tbody id="abonados-body"></tbody>
-            </table>
-          </div>
-        </div>
-      </section>
-
-      <!-- ===== Vista: Llamadas (estadísticas + histórico) ===== -->
-      <section id="view-llamadas" class="view hidden">
-        <div class="view-head">
-          <h1>Llamadas</h1>
-          <button id="btn-clear-history" class="small danger">Limpiar histórico</button>
-        </div>
         <div class="stats stats-6">
           <div class="tile"><div class="v" id="cs-total">0</div><div class="l">Total</div></div>
           <div class="tile"><div class="v ok" id="cs-answered">0</div><div class="l">Atendidas</div></div>
@@ -193,10 +218,10 @@
         </div>
       </section>
 
-      <!-- ===== Vista: Monitor ===== -->
-      <section id="view-monitor" class="view hidden">
+      <!-- ===== Vista: Trazas (señalización SIP + RTP en vivo) ===== -->
+      <section id="view-trazas" class="view hidden">
         <div class="view-head">
-          <h1>Monitor en vivo</h1>
+          <h1>Trazas</h1>
           <div class="head-right"><span class="field-label">Abonado</span><select id="detail-select"></select></div>
         </div>
         <div class="monitor-grid">
@@ -393,6 +418,7 @@
     </div>
   </div>
 
-  <script src="/app.js?v=8"></script>
+  <div id="toasts" class="toasts"></div>
+  <script src="/app.js?v=9"></script>
 </body>
 </html>

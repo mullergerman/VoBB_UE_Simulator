@@ -126,8 +126,9 @@ button.icon-btn:hover { color: var(--text); background: var(--surface2); border-
 
 /* ---------- Panels ---------- */
 .panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
-.panel-head { display: flex; align-items: center; justify-content: space-between; padding: 13px 18px; border-bottom: 1px solid var(--border); }
-.panel-head h2 { font-size: 14px; color: var(--text); }
+.panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 13px 18px; border-bottom: 1px solid var(--border); }
+.panel-head h2 { font-size: 14px; color: var(--text); display: flex; align-items: center; }
+.panel-head .sig-search { max-width: 260px; }
 
 /* ---------- Tablas ---------- */
 .table-wrap { width: 100%; overflow-x: auto; }
@@ -239,6 +240,23 @@ label.full { margin-bottom: 8px; }
 .role-badge { padding: 2px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; }
 .role-badge.admin { background: rgba(183,139,255,.16); color: #cbb0ff; border: 1px solid rgba(183,139,255,.4); }
 .role-badge.user { background: var(--surface2); color: var(--muted); border: 1px solid var(--border); }
+
+/* ---------- Toasts ---------- */
+.toasts { position: fixed; right: 18px; bottom: 18px; z-index: 120; display: flex; flex-direction: column; gap: 10px; align-items: flex-end; }
+.toast { background: var(--surface2); border: 1px solid var(--border2); color: var(--text); padding: 11px 15px;
+  border-radius: var(--radius-sm); font-size: 13px; box-shadow: var(--shadow); max-width: 380px;
+  opacity: 0; transform: translateY(8px); transition: opacity .2s, transform .2s; border-left: 3px solid var(--accent); }
+.toast.show { opacity: 1; transform: translateY(0); }
+.toast.ok { border-left-color: var(--green); }
+.toast.error { border-left-color: var(--red); }
+
+/* ---------- Legend / chips ---------- */
+.legend { display: inline-flex; gap: 12px; align-items: center; }
+.legend .lg { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); }
+.chip-flag { display: inline-block; padding: 1px 9px; border-radius: 20px; font-size: 11px; border: 1px solid transparent; }
+.chip-flag.on { background: rgba(67,198,107,.14); color: #6fe090; border-color: rgba(67,198,107,.35); }
+.chip-flag.off { background: var(--surface2); color: var(--muted); border-color: var(--border); }
+.count-pill { margin-left: 6px; }
 
 /* ---------- Dashboard ---------- */
 .stats.stats-6 { grid-template-columns: repeat(6, 1fr); }

@@ -151,14 +151,19 @@ el botón por línea de siempre en la vista Abonados.
 
 ### Vistas
 
-- **Dashboard** (principal): stat tiles (abonados, registrados, sin registrar, activas, ASR,
-  motor), control general (registrar/desregistrar/colgar en masa), estado de red (admin) y
-  resumen de llamadas.
-- **Abonados:** control de llamada (originar), llamadas activas y lista de abonados.
-- **Llamadas:** estadísticas (total, atendidas, fallidas, ASR, ACD, activas) e **histórico
-  persistente** (tabla `CallRecord` en SQLite, sobrevive reinicios) con filtros MO/MT y
-  atendida/fallida, RTP por llamada, y *Limpiar histórico* (admin).
-- **Monitor, Perfiles, Usuarios:** como antes.
+- **Dashboard** (principal): cockpit operativo — stat tiles, control general (registrar/
+  desregistrar/colgar en masa), **estado de abonados en vivo** (registro, llamada activa,
+  Reg/Unreg, «Llamar desde», con búsqueda y leyenda), estado de red (admin) y resumen de llamadas.
+- **Abonados:** **provisión / configuración** (sin estado en vivo) — alta/edición/baja, número
+  corto, perfil asociado, habilitado, con búsqueda.
+- **Llamadas:** **control** (originar cualquier combinación origen→destino) + llamadas activas +
+  estadísticas (total, atendidas, fallidas, ASR, ACD, activas) e **histórico persistente**
+  (`CallRecord`, sobrevive reinicios) con filtros MO/MT y atendida/fallida.
+- **Trazas** (antes Monitor): señalización SIP en vivo + estadísticas RTP.
+- **Perfiles, Usuarios:** como antes.
+
+Los abonados se listan en **orden natural ascendente** por número de línea en todas las tablas y
+selectores. El feedback de las acciones se muestra con **notificaciones (toasts)** no bloqueantes.
 
 ### Una sola interfaz de salida
 
